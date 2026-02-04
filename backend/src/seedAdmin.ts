@@ -5,37 +5,29 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const seedAdmin = async () => {
-    try {
-        await sequelize.authenticate();
-        console.log('Database connected.');
+export const seedAdmin = async () => {
+    const name = "Admin User";
+    const email = "admin@cinepass.com";
+    const password = "adminpassword123";
 
-        // Check if admin already exists
-        const existingAdmin = await User.findOne({ where: { email: 'admin@cinema.com' } });
+    try {
+        const existingAdmin = await User.findOne({ where: { email } });
         if (existingAdmin) {
-            console.log('Admin user already exists.');
-            process.exit(0);
+            return;
         }
 
         const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash('admin123', salt);
+        const passwordHash = await bcrypt.hash(password, salt);
 
         await User.create({
-            name: 'Administrator',
-            email: 'admin@cinema.com',
+            name,
+            email,
             passwordHash,
-            role: 'admin',
+            role: 'admin'
         });
 
-        console.log('Admin user created successfully.');
-        console.log('Email: admin@cinema.com');
-        console.log('Password: admin123');
-
-        process.exit(0);
+        console.log('Automated Admin Seeding: SUCCESS');
     } catch (error) {
         console.error('Error seeding admin:', error);
-        process.exit(1);
     }
 };
-
-seedAdmin();

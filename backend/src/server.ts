@@ -7,15 +7,19 @@ import adminRoutes from './routes/adminRoutes';
 import bookingRoutes from './routes/bookingRoutes';
 import movieRoutes from './routes/movieRoutes';
 
+import { seedAdmin } from './seedAdmin';
+
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Update CORS for production
+// CORS configuration - Allow local dev and production frontend
 const corsOptions = {
-    origin: process.env.FRONTEND_URL || '*',
-    optionsSuccessStatus: 200
+    origin: process.env.NODE_ENV === 'production'
+        ? process.env.FRONTEND_URL
+        : 'http://localhost:5173',
+    credentials: true,
 };
 
 app.use(cors(corsOptions));
@@ -36,6 +40,9 @@ const startServer = async () => {
         console.log('Database connected successfully.');
         // Sync models (force: false to avoid dropping tables) - maybe use alter: true in dev
         await sequelize.sync({ alter: true });
+
+        // Automated Admin Seeding
+        await seedAdmin();
 
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
