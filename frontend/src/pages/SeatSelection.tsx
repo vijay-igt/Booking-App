@@ -130,37 +130,49 @@ const SeatSelection: React.FC = () => {
             </div>
 
             {/* Seat Grid */}
-            <div className="px-6 flex flex-col items-center gap-4 mb-12">
-                {seats.length === 0 ? (
-                    <div className="text-center py-10 opacity-50">
-                        <Armchair className="w-12 h-12 mx-auto mb-4" />
-                        <p>No seat layout configured for this screen.</p>
-                        <p className="text-xs mt-2">Please ask Admin to "Generate Seats".</p>
-                    </div>
-                ) : (
-                    rows.map((row) => (
-                        <div key={row} className="flex items-center gap-6">
-                            <span className="w-4 text-[10px] font-black text-gray-600 uppercase text-center">{row}</span>
-                            <div className="flex gap-3">
-                                {seats
-                                    .filter((s) => s.row === row)
-                                    .sort((a, b) => a.number - b.number)
-                                    .map((seat) => (
-                                        <motion.button
-                                            key={seat.id}
-                                            whileTap={seat.status !== 'booked' ? { scale: 0.8 } : {}}
-                                            disabled={seat.status === 'booked'}
-                                            onClick={() => toggleSeat(seat.id)}
-                                            className={`w-10 h-10 rounded-xl border flex items-center justify-center text-[10px] font-bold transition-all duration-300 ${getSeatColor(seat.status, selectedSeats.includes(seat.id), seat.type)
-                                                }`}
-                                        >
-                                            <Armchair className={`w-4 h-4 ${selectedSeats.includes(seat.id) ? 'fill-current' : ''}`} />
-                                        </motion.button>
-                                    ))}
-                            </div>
+            <div className="px-6 flex flex-col items-center gap-4 mb-12 relative z-10" style={{ perspective: '1200px' }}>
+                <div style={{ transform: 'rotateX(20deg)', transformOrigin: 'center top' }} className="flex flex-col gap-4">
+                    {seats.length === 0 ? (
+                        <div className="text-center py-20 opacity-50">
+                            <Armchair className="w-16 h-16 mx-auto mb-4" />
+                            <p className="text-xl font-bold">Cinema layout pending</p>
+                            <p className="text-sm mt-2">Ask Admin to "Generate Seats" for this screen</p>
                         </div>
-                    ))
-                )}
+                    ) : (
+                        rows.map((row) => (
+                            <div key={row} className="flex items-center gap-4 sm:gap-8">
+                                <span className="w-6 text-[11px] font-black text-blue-500/40 uppercase text-center">{row}</span>
+                                <div className="flex gap-2 sm:gap-3">
+                                    {seats
+                                        .filter((s) => s.row === row)
+                                        .sort((a, b) => a.number - b.number)
+                                        .map((seat) => (
+                                            <motion.button
+                                                key={seat.id}
+                                                whileHover={seat.status !== 'booked' ? { scale: 1.1, y: -2 } : {}}
+                                                whileTap={seat.status !== 'booked' ? { scale: 0.9 } : {}}
+                                                disabled={seat.status === 'booked'}
+                                                onClick={() => toggleSeat(seat.id)}
+                                                className={`relative w-8 h-8 sm:w-11 sm:h-11 rounded-xl border flex items-center justify-center transition-all duration-300 ${getSeatColor(seat.status, selectedSeats.includes(seat.id), seat.type)
+                                                    }`}
+                                            >
+                                                <Armchair className={`w-5 h-5 sm:w-6 sm:h-6 opacity-20 absolute ${selectedSeats.includes(seat.id) ? 'fill-current opacity-100' : ''}`} />
+                                                <span className={`relative text-[9px] sm:text-[11px] font-black ${selectedSeats.includes(seat.id) ? 'text-white' : 'text-inherit'}`}>
+                                                    {seat.number}
+                                                </span>
+                                                {seat.status === 'booked' && (
+                                                    <div className="absolute inset-0 bg-red-500/10 rounded-xl flex items-center justify-center overflow-hidden">
+                                                        <div className="w-[120%] h-[1px] bg-red-500/30 rotate-45 animate-pulse" />
+                                                    </div>
+                                                )}
+                                            </motion.button>
+                                        ))}
+                                </div>
+                                <span className="w-6 text-[11px] font-black text-blue-500/40 uppercase text-center">{row}</span>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
 
             {/* Legend */}
