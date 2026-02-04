@@ -267,6 +267,20 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    const handleDeleteShowtime = async (showtimeId: number) => {
+        if (!confirm('Are you sure you want to delete this showtime? This will also cancel all associated bookings.')) {
+            return;
+        }
+        try {
+            await api.delete(`/showtimes/${showtimeId}`);
+            fetchShowtimes();
+            alert('Showtime deleted successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert('Failed to delete showtime: ' + (error.response?.data?.message || error.message));
+        }
+    };
+
     const menuItems = [
         { id: 'theaters', label: 'Theaters', icon: LayoutDashboard },
         { id: 'movies', label: 'Movies', icon: Film },
@@ -559,12 +573,20 @@ const AdminDashboard: React.FC = () => {
                                                         <p className="font-black text-lg">${st.price}</p>
                                                         <p className="text-[8px] font-black uppercase opacity-50 tracking-widest">Pricing</p>
                                                     </div>
-                                                    <button
-                                                        onClick={() => setEditingShowtime(st)}
-                                                        className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-blue-600 hover:border-blue-500 transition-all"
-                                                    >
-                                                        <Search className="w-5 h-5" /> {/* Using Search as Edit icon for consistency or change to Edit if available */}
-                                                    </button>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => setEditingShowtime(st)}
+                                                            className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-blue-600 hover:border-blue-500 transition-all"
+                                                        >
+                                                            <Search className="w-5 h-5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteShowtime(st.id)}
+                                                            className="w-12 h-12 rounded-2xl bg-red-900/20 border border-red-900/30 flex items-center justify-center hover:bg-red-600 hover:border-red-500 transition-all"
+                                                        >
+                                                            <span className="text-lg">×</span>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
