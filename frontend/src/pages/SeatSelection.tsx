@@ -204,7 +204,7 @@ const SeatSelection: React.FC = () => {
                                 <div>
                                     <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest mb-1">Total</p>
                                     <p className="text-3xl font-black text-white">
-                                        ${selectedSeats.reduce((acc, id) => {
+                                        ₹{selectedSeats.reduce((acc, id) => {
                                             const seat = seats.find(s => s.id === id);
                                             return acc + (seat ? Number(seat.price) : 0);
                                         }, 0)}

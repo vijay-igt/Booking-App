@@ -79,7 +79,7 @@ const AdminDashboard: React.FC = () => {
         audio: 'Dolby Atmos',
         format: 'IMAX 2D'
     });
-    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 10 });
+    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 150 });
     const [newScreenName, setNewScreenName] = useState('');
     const [selectedTheaterId, setSelectedTheaterId] = useState<number | null>(null);
 
@@ -91,7 +91,7 @@ const AdminDashboard: React.FC = () => {
     const [genScreenId, setGenScreenId] = useState<number | null>(null);
     const [seatRows, setSeatRows] = useState(5);
     const [seatCols, setSeatCols] = useState(10);
-    const [seatPrice] = useState(12);
+    const [seatPrice] = useState(150);
 
     useEffect(() => {
         fetchTheaters();
@@ -227,7 +227,7 @@ const AdminDashboard: React.FC = () => {
 
             await api.post('/showtimes', payload);
             alert('Showtime initialized successfully!');
-            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 10 });
+            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 150 });
             fetchShowtimes(); // Refresh the showtimes list
         } catch (error: any) {
             console.error(error);
@@ -606,7 +606,7 @@ const AdminDashboard: React.FC = () => {
                                                 </div>
                                                 <div className="flex items-center gap-6">
                                                     <div className="text-right">
-                                                        <p className="font-black text-lg">${st.price}</p>
+                                                        <p className="font-black text-lg">₹{st.price}</p>
                                                         <p className="text-[8px] font-black uppercase opacity-50 tracking-widest">Pricing</p>
                                                     </div>
                                                     <div className="flex gap-2">
@@ -668,7 +668,7 @@ const AdminDashboard: React.FC = () => {
                                                         />
                                                     </div>
                                                     <div className="space-y-3">
-                                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Price ($)</label>
+                                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Price (₹)</label>
                                                         <input
                                                             type="number"
                                                             value={editingShowtime.price}

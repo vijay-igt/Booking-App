@@ -100,7 +100,7 @@ export const generateSeats = async (req: Request, res: Response): Promise<void> 
                     row: rowLabel,
                     number: c,
                     type: 'Regular',
-                    price: price || 10.00,
+                    price: price || 150.00,
                     status: 'available',
                 });
             }
