@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Film, Star, Calendar, MapPin, Globe, Mic, Info, X } from 'lucide-react';
 
@@ -46,7 +46,7 @@ const MovieDetails: React.FC = () => {
     useEffect(() => {
         const fetchMovie = async () => {
             try {
-                const response = await axios.get(`http://localhost:5000/api/movies/${id}`);
+                const response = await api.get(`/movies/${id}`);
                 setMovie(response.data);
             } catch (error) {
                 console.error('Error fetching movie details:', error);

@@ -1,6 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import axios from 'axios';
+import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clapperboard, Mail, Lock, AlertCircle } from 'lucide-react';
@@ -18,7 +18,7 @@ const Login: React.FC = () => {
         setIsLoading(true);
         setError('');
         try {
-            const response = await axios.post('http://localhost:5000/api/auth/login', { email, password });
+            const response = await api.post('/auth/login', { email, password });
             auth?.login(response.data.token, response.data.user);
             navigate(response.data.user.role === 'admin' ? '/admin' : '/');
         } catch (err: any) {

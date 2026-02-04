@@ -11,13 +11,27 @@ import { Ticket } from '../models/Ticket';
 
 dotenv.config();
 
-export const sequelize = new Sequelize({
-    database: process.env.DB_NAME || 'movie_booking_db',
-    dialect: 'postgres',
-    username: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432'),
-    models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket], // We will add more models here
-    logging: false,
-});
+const isProduction = process.env.NODE_ENV === 'production';
+
+export const sequelize = process.env.DATABASE_URL
+    ? new Sequelize(process.env.DATABASE_URL, {
+        dialect: 'postgres',
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket],
+        logging: false,
+        dialectOptions: isProduction ? {
+            ssl: {
+                require: true,
+                rejectUnauthorized: false
+            }
+        } : {}
+    })
+    : new Sequelize({
+        database: process.env.DB_NAME || 'movie_booking_db',
+        dialect: 'postgres',
+        username: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT || '5432'),
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket],
+        logging: false,
+    });

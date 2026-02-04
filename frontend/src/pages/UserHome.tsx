@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Home, Ticket, User, Star, Play, Info } from 'lucide-react';
@@ -27,7 +27,7 @@ const UserHome: React.FC = () => {
     useEffect(() => {
         const fetchMovies = async () => {
             try {
-                const response = await axios.get('http://localhost:5000/api/movies');
+                const response = await api.get('/movies');
                 setMovies(response.data);
                 setLoading(false);
             } catch (error) {

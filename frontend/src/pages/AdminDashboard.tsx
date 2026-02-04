@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutDashboard,
@@ -99,14 +99,14 @@ const AdminDashboard: React.FC = () => {
 
     const fetchTheaters = async () => {
         try {
-            const response = await axios.get('http://localhost:5000/api/admin/theaters');
+            const response = await api.get('/admin/theaters');
             setTheaters(response.data);
         } catch (error) { console.error(error); }
     };
 
     const fetchMovies = async () => {
         try {
-            const response = await axios.get('http://localhost:5000/api/movies');
+            const response = await api.get('/movies');
             setMovies(response.data);
         } catch (error) { console.error(error); }
     };
@@ -120,7 +120,7 @@ const AdminDashboard: React.FC = () => {
             // Let's assume there is /api/showtimes/all or similar.
             // For now, let's just make sure the UI can list them if we had them.
             // I'll add a helper in backend for this.
-            const response = await axios.get('http://localhost:5000/api/admin/showtimes');
+            const response = await api.get('/admin/showtimes');
             setShowtimes(response.data);
         } catch (error) { console.error(error); }
     };
@@ -129,7 +129,7 @@ const AdminDashboard: React.FC = () => {
         e.preventDefault();
         if (!editingMovie) return;
         try {
-            await axios.put(`http://localhost:5000/api/movies/${editingMovie.id}`, editingMovie);
+            await api.put(`/movies/${editingMovie.id}`, editingMovie);
             setEditingMovie(null);
             fetchMovies();
             alert('Movie updated!');
@@ -151,7 +151,7 @@ const AdminDashboard: React.FC = () => {
                 endTime: end.toISOString()
             };
 
-            await axios.put(`http://localhost:5000/api/showtimes/${editingShowtime.id}`, payload);
+            await api.put(`/showtimes/${editingShowtime.id}`, payload);
             setEditingShowtime(null);
             fetchShowtimes();
             alert('Showtime updated!');
@@ -169,7 +169,7 @@ const AdminDashboard: React.FC = () => {
     const handleAddTheater = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await axios.post('http://localhost:5000/api/admin/theaters', newTheater);
+            await api.post('/admin/theaters', newTheater);
             setNewTheater({ name: '', location: '' });
             fetchTheaters();
         } catch (error) { console.error(error); }
@@ -180,7 +180,7 @@ const AdminDashboard: React.FC = () => {
         try {
             // Filter out empty releaseDate so it sends undefined (or null) if not provided, letting backend handle it or error clearly
             const payload = { ...newMovie, releaseDate: newMovie.releaseDate || undefined };
-            await axios.post('http://localhost:5000/api/movies', payload);
+            await api.post('/movies', payload);
             setNewMovie({
                 title: '',
                 description: '',
@@ -219,7 +219,7 @@ const AdminDashboard: React.FC = () => {
                 endTime: end.toISOString()
             };
 
-            await axios.post('http://localhost:5000/api/showtimes', payload);
+            await api.post('/showtimes', payload);
             alert('Showtime initialized successfully!');
             setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 10 });
         } catch (error: any) {
@@ -232,7 +232,7 @@ const AdminDashboard: React.FC = () => {
         e.preventDefault();
         if (!selectedTheaterId) return;
         try {
-            await axios.post('http://localhost:5000/api/admin/screens', {
+            await api.post('/admin/screens', {
                 theaterId: selectedTheaterId,
                 name: newScreenName,
             });
@@ -244,7 +244,7 @@ const AdminDashboard: React.FC = () => {
 
     const handleGenerateSeats = async (screenId: number) => {
         try {
-            await axios.post('http://localhost:5000/api/admin/seats/generate', {
+            await api.post('/admin/seats/generate', {
                 screenId, rows: seatRows, cols: seatCols, price: seatPrice,
             });
             alert('Seats generated!');

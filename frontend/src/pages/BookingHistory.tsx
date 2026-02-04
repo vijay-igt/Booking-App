@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Calendar, Clock, MapPin, QrCode, Download, Share2, Ticket } from 'lucide-react';
@@ -40,7 +40,7 @@ const BookingHistory: React.FC = () => {
         const fetchBookings = async () => {
             if (!auth?.user) return;
             try {
-                const response = await axios.get(`http://localhost:5000/api/bookings/user/${auth.user.id}`);
+                const response = await api.get(`/bookings/user/${auth.user.id}`);
                 setBookings(response.data);
             } catch (error) {
                 console.error('Error fetching bookings:', error);

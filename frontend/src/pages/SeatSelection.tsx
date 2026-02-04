@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Check, Armchair } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
@@ -27,7 +27,7 @@ const SeatSelection: React.FC = () => {
         const fetchShowtimeDetails = async () => {
             try {
                 console.log('Fetching seats for showtime:', showtimeId);
-                const response = await axios.get(`http://localhost:5000/api/showtimes/${showtimeId}/seats`);
+                const response = await api.get(`/showtimes/${showtimeId}/seats`);
                 console.log('Seats loaded:', response.data.length);
                 setSeats(response.data);
             } catch (error) {
@@ -60,7 +60,7 @@ const SeatSelection: React.FC = () => {
                 return acc + (seat ? Number(seat.price) : 0);
             }, 0);
 
-            await axios.post('http://localhost:5000/api/bookings', {
+            await api.post('/bookings', {
                 userId: auth.user.id,
                 showtimeId: parseInt(showtimeId || '0'),
                 seatIds: selectedSeats,
