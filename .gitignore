@@ -1,0 +1,24 @@
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
