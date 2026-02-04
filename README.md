@@ -5,10 +5,11 @@ CinePass is a high-fidelity, full-stack movie booking application featuring a ci
 ## 🚀 Key Features
 
 - **Cinematic Experience**: Immersive dark-mode UI with glassmorphism and smooth animations.
-- **Dynamic Seat Selection**: Interactive curved-screen theater layout with live pricing.
-- **Admin Dashboard**: Full control over movies, theaters, screens, and showtimes.
-- **Robust Security**: JWT-based authentication and database-level double-booking prevention.
+- **Dynamic Seat Selection**: Interactive curved-screen theater layout with live pricing in **INR (₹)**.
+- **Admin Dashboard**: Full control over movies, theaters, screens, and showtimes with **direct image upload** for posters.
+- **Robust Security**: JWT-based authentication with persistent login and secure logout.
 - **Digital Wallet**: Realistic perforated ticket designs with QR codes.
+- **SPA Optimized**: Handles page reloads seamlessly on Render using `404.html` and `_redirects` fallbacks.
 
 ---
 
@@ -36,23 +37,16 @@ CinePass is a high-fidelity, full-stack movie booking application featuring a ci
     npm install
     ```
 3.  Set up Environment Variables:
-    - Create a `.env` file (refer to `.env.example`):
+    Create a `.env` file:
     ```env
     PORT=5000
-    DB_NAME=movie_booking_db
-    DB_USER=your_postgres_user
-    DB_PASSWORD=your_password
-    DB_HOST=localhost
-    DB_PORT=5432
+    DATABASE_URL=postgres://user:pass@host:port/db
     JWT_SECRET=your_secure_secret
+    FRONTEND_URL=http://localhost:5173
     ```
 4.  Initialize the Database:
     ```bash
-    npm run db:init
-    ```
-5.  Start the server:
-    ```bash
-    npm run dev
+    npm run dev  # Automates seeding and sync
     ```
 
 ### 3. Frontend Setup
@@ -71,6 +65,19 @@ CinePass is a high-fidelity, full-stack movie booking application featuring a ci
 
 ---
 
+## 🌐 Deployment (Render)
+
+### Frontend (Static Site)
+- **Build Command**: `cd frontend && npm install && npm run build`
+- **Publish Directory**: `frontend/dist`
+- **SPA Handling**: The project includes `404.html` and `_redirects` in the `public` folder to ensure client-side routing works on page refresh.
+
+### Backend (Web Service)
+- **Build Command**: `cd backend && npm install && npm run build`
+- **Start Command**: `node backend/dist/server.js`
+
+---
+
 ## 📁 Project Structure
 
 ```bash
@@ -86,7 +93,7 @@ CinePass is a high-fidelity, full-stack movie booking application featuring a ci
 │   │   ├── pages/       # React page components
 │   │   ├── context/     # Auth & global state
 │   │   └── components/  # Reusable UI parts
-│   └── tailwind.config.js
+│   └── public/          # Static assets & routing fallbacks
 └── README.md
 ```
 
