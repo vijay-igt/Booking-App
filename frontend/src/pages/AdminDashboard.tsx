@@ -222,6 +222,7 @@ const AdminDashboard: React.FC = () => {
             await api.post('/showtimes', payload);
             alert('Showtime initialized successfully!');
             setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 10 });
+            fetchShowtimes(); // Refresh the showtimes list
         } catch (error: any) {
             console.error(error);
             alert('Failed to add showtime: ' + (error.response?.data?.message || error.message));
@@ -250,6 +251,20 @@ const AdminDashboard: React.FC = () => {
             alert('Seats generated!');
             setGenScreenId(null);
         } catch (error) { console.error(error); }
+    };
+
+    const handleDeleteScreen = async (screenId: number) => {
+        if (!confirm('Are you sure you want to delete this screen? This will also delete all associated seats and showtimes.')) {
+            return;
+        }
+        try {
+            await api.delete(`/admin/screens/${screenId}`);
+            fetchTheaters();
+            alert('Screen deleted successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert('Failed to delete screen: ' + (error.response?.data?.message || error.message));
+        }
     };
 
     const menuItems = [
@@ -346,7 +361,10 @@ const AdminDashboard: React.FC = () => {
                                                             <div className="w-8 h-8 rounded-xl bg-gray-900 border border-white/5 flex items-center justify-center text-[10px] font-black">{screen.name.split(' ')[1] || 'S'}</div>
                                                             <span className="font-bold text-sm">{screen.name}</span>
                                                         </div>
-                                                        <button onClick={() => setGenScreenId(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-6 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all">Config Layout</button>
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => setGenScreenId(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-6 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all">Config Layout</button>
+                                                            <button onClick={() => handleDeleteScreen(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-2xl bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 transition-all">Delete</button>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>

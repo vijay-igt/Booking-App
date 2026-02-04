@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createTheater, getTheaters, createScreen, generateSeats, getSeatsByScreen, getAllShowtimes } from '../controllers/adminController';
+import { createTheater, getTheaters, createScreen, updateScreen, deleteScreen, generateSeats, getSeatsByScreen, getAllShowtimes } from '../controllers/adminController';
 
 const router = Router();
 
@@ -7,6 +7,8 @@ const router = Router();
 router.post('/theaters', createTheater);
 router.get('/theaters', getTheaters);
 router.post('/screens', createScreen);
+router.put('/screens/:id', updateScreen);
+router.delete('/screens/:id', deleteScreen);
 router.post('/seats/generate', generateSeats);
 router.get('/seats/:screenId', getSeatsByScreen);
 router.get('/showtimes', getAllShowtimes);

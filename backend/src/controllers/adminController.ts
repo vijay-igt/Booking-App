@@ -34,6 +34,37 @@ export const createScreen = async (req: Request, res: Response): Promise<void> =
     }
 };
 
+export const updateScreen = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+        const screen = await Screen.findByPk(parseInt(String(id)));
+        if (!screen) {
+            res.status(404).json({ message: 'Screen not found' });
+            return;
+        }
+        await screen.update({ name });
+        res.json(screen);
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating screen', error });
+    }
+};
+
+export const deleteScreen = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const screen = await Screen.findByPk(parseInt(String(id)));
+        if (!screen) {
+            res.status(404).json({ message: 'Screen not found' });
+            return;
+        }
+        await screen.destroy();
+        res.json({ message: 'Screen deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting screen', error });
+    }
+};
+
 export const generateSeats = async (req: Request, res: Response): Promise<void> => {
     try {
         const { screenId, rows, cols, price } = req.body;
