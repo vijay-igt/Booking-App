@@ -174,7 +174,11 @@ const AdminDashboard: React.FC = () => {
             await api.post('/admin/theaters', newTheater);
             setNewTheater({ name: '', location: '' });
             fetchTheaters();
-        } catch (error) { console.error(error); }
+            alert('Theater added successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert(error.response?.data?.message || 'Failed to add theater');
+        }
     };
 
     const handleAddMovie = async (e: React.FormEvent) => {
@@ -240,9 +244,12 @@ const AdminDashboard: React.FC = () => {
                 name: newScreenName,
             });
             setNewScreenName('');
-            // setSelectedTheaterId(null); // Keep form open to add more screens
             fetchTheaters();
-        } catch (error) { console.error(error); }
+            alert('Screen added successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert(error.response?.data?.message || 'Failed to add screen');
+        }
     };
 
     const handleGenerateSeats = async (screenId: number) => {

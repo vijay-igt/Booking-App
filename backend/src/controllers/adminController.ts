@@ -27,6 +27,13 @@ export const getTheaters = async (req: Request, res: Response): Promise<void> =>
 export const createScreen = async (req: Request, res: Response): Promise<void> => {
     try {
         const { theaterId, name } = req.body;
+
+        const existingScreen = await Screen.findOne({ where: { theaterId, name } });
+        if (existingScreen) {
+            res.status(400).json({ message: `A screen with name "${name}" already exists in this theater.` });
+            return;
+        }
+
         const screen = await Screen.create({ theaterId, name });
         res.status(201).json(screen);
     } catch (error) {
@@ -43,6 +50,19 @@ export const updateScreen = async (req: Request, res: Response): Promise<void> =
             res.status(404).json({ message: 'Screen not found' });
             return;
         }
+
+        const existingScreen = await Screen.findOne({
+            where: {
+                theaterId: screen.theaterId,
+                name
+            }
+        });
+
+        if (existingScreen && existingScreen.id !== screen.id) {
+            res.status(400).json({ message: `A screen with name "${name}" already exists in this theater.` });
+            return;
+        }
+
         await screen.update({ name });
         res.json(screen);
     } catch (error) {

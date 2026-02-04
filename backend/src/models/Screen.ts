@@ -6,6 +6,12 @@ import { Showtime } from './Showtime';
 @Table({
     tableName: 'screens',
     timestamps: true,
+    indexes: [
+        {
+            unique: true,
+            fields: ['theaterId', 'name']
+        }
+    ]
 })
 export class Screen extends Model {
     @PrimaryKey
