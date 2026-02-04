@@ -10,7 +10,9 @@ import {
     Clock,
     DollarSign,
     LogOut,
-    Search
+    Search,
+    Upload,
+    ExternalLink
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -253,6 +255,17 @@ const AdminDashboard: React.FC = () => {
         } catch (error) { console.error(error); }
     };
 
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setNewMovie({ ...newMovie, posterUrl: reader.result as string });
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleDeleteScreen = async (screenId: number) => {
         if (!confirm('Are you sure you want to delete this screen? This will also delete all associated seats and showtimes.')) {
             return;
@@ -307,6 +320,16 @@ const AdminDashboard: React.FC = () => {
                             {label}
                         </button>
                     ))}
+                    <div className="pt-8 pb-4">
+                        <div className="h-px bg-white/5 mx-4 mb-8" />
+                        <button
+                            onClick={() => navigate('/')}
+                            className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-gray-500 hover:text-white hover:bg-white/5 transition-all"
+                        >
+                            <ExternalLink className="w-5 h-5" />
+                            View Website
+                        </button>
+                    </div>
                 </nav>
 
                 <div className="p-8 border-t border-white/5">
@@ -407,7 +430,13 @@ const AdminDashboard: React.FC = () => {
                                         <input type="text" placeholder="Feature Title" value={newMovie.title} onChange={e => setNewMovie({ ...newMovie, title: e.target.value })} className="premium-input" />
                                         <input type="text" placeholder="Primary Genre" value={newMovie.genre} onChange={e => setNewMovie({ ...newMovie, genre: e.target.value })} className="premium-input" />
                                         <input type="number" placeholder="Duration (min)" value={newMovie.duration} onChange={e => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="premium-input" />
-                                        <input type="text" placeholder="Poster URL" value={newMovie.posterUrl} onChange={e => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="premium-input" />
+                                        <div className="relative group">
+                                            <input type="text" placeholder="Poster URL" value={newMovie.posterUrl} onChange={e => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="premium-input w-full pr-12" />
+                                            <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
+                                                <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
+                                                <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                                            </label>
+                                        </div>
                                         <div className="flex gap-4 col-span-2">
                                             <input type="text" placeholder="Rating (e.g. PG-13)" value={newMovie.rating} onChange={e => setNewMovie({ ...newMovie, rating: e.target.value })} className="premium-input w-full" />
                                             <input type="date" placeholder="Release Date" value={newMovie.releaseDate} onChange={e => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="premium-input w-full" />
