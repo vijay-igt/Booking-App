@@ -38,7 +38,7 @@ Follow these steps to deploy your full-stack application on Render.
 5.  **Build Command**: `npm install && npm run build`
 6.  **Publish Directory**: `dist`
 7.  Click **Advanced** -> **Add Environment Variable**:
-    - `VITE_API_URL`: `https://your-backend-url.onrender.com/api`
+    - `VITE_API_URL`: `https://your-backend-url.onrender.com` (The app adds /api automatically)
 8.  Click **Create Static Site**.
 
 ---
