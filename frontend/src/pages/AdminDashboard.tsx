@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -54,7 +54,7 @@ interface Showtime {
     screenId: number;
     startTime: string;
     endTime: string;
-    price: number;
+    tierPrices?: Record<string, number>;
     movie: Movie;
     screen: Screen & { theater: Theater };
 }
@@ -95,32 +95,28 @@ const AdminDashboard: React.FC = () => {
 
     // Form States
     const [newTheater, setNewTheater] = useState({ name: '', location: '' });
-    const [newMovie, setNewMovie] = useState({
-        title: '',
-        description: '',
-        genre: '',
-        duration: 120,
-        rating: 'PG-13',
-        posterUrl: '',
-        bannerUrl: '',
-        releaseDate: '',
-        language: 'English',
-        audio: 'Dolby Atmos',
-        format: 'IMAX 2D'
+    const [newMovie, setNewMovie] = useState<Partial<Movie>>({
+        title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D'
     });
-    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 150 });
+    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} as Record<string, number> });
+    const [newShowtimeDate, setNewShowtimeDate] = useState('');
+    const [newShowtimeTime, setNewShowtimeTime] = useState('');
+    const [selectedScreenTiers, setSelectedScreenTiers] = useState<string[]>([]);
+    const [editingScreenTiers, setEditingScreenTiers] = useState<string[]>([]);
     const [newScreenName, setNewScreenName] = useState('');
     const [selectedTheaterId, setSelectedTheaterId] = useState<number | null>(null);
 
     // Editing States
     const [editingMovie, setEditingMovie] = useState<Movie | null>(null);
     const [editingShowtime, setEditingShowtime] = useState<Showtime | null>(null);
+    const [editingScreen, setEditingScreen] = useState<{ id: number, name: string } | null>(null);
 
     // Seat Gen
     const [genScreenId, setGenScreenId] = useState<number | null>(null);
-    const [seatRows, setSeatRows] = useState(5);
+    const [seatTiers, setSeatTiers] = useState<{ name: string; rows: number; price: number }[]>([
+        { name: 'Classic', rows: 5, price: 150 }
+    ]);
     const [seatCols, setSeatCols] = useState(10);
-    const [seatPrice] = useState(150);
     const [hasExistingSeats, setHasExistingSeats] = useState(false);
 
     // Helper to format ISO UTC string to YYYY-MM-DDTHH:mm for datetime-local inputs
@@ -132,6 +128,56 @@ const AdminDashboard: React.FC = () => {
         return localDate.toISOString().slice(0, 16);
     };
 
+    const fetchBookings = useCallback(async () => {
+        try {
+            const response = await api.get('/admin/bookings');
+            setBookings(response.data);
+        } catch (error) {
+            console.error('Error fetching bookings:', error);
+        }
+    }, []);
+
+    const fetchTheaters = useCallback(async () => {
+        try {
+            const response = await api.get('/admin/theaters');
+            setTheaters(response.data);
+        } catch (error) { console.error(error); }
+    }, []);
+
+    const fetchMovies = useCallback(async () => {
+        try {
+            const response = await api.get('/movies');
+            setMovies(response.data);
+        } catch (error) { console.error(error); }
+    }, []);
+
+    const fetchShowtimes = useCallback(async () => {
+        try {
+            const response = await api.get('/admin/showtimes');
+            setShowtimes(response.data);
+        } catch (error) { console.error(error); }
+    }, []);
+
+    // Shared tier fetching logic
+    const fetchTiersForScreen = useCallback(async (screenId: number, setTiers: (tiers: string[]) => void, updateState: (tierPrices: Record<string, number>) => void) => {
+        try {
+            const response = await api.get(`/admin/seats/${screenId}`);
+            const seats: any[] = response.data;
+            const tiers = [...new Set(seats.map(s => s.type))].sort();
+            setTiers(tiers);
+
+            const initialPrices: Record<string, number> = {};
+            tiers.forEach(t => {
+                const existingSeat = seats.find(s => s.type === t);
+                initialPrices[t] = existingSeat ? Number(existingSeat.price) : 150;
+            });
+            updateState(initialPrices);
+        } catch (error) {
+            console.error('Error fetching tiers:', error);
+            setTiers([]);
+        }
+    }, []);
+
     useEffect(() => {
         if (genScreenId) {
             const fetchSeats = async () => {
@@ -139,21 +185,15 @@ const AdminDashboard: React.FC = () => {
                     const res = await api.get(`/admin/seats/${genScreenId}`);
                     if (res.data && res.data.length > 0) {
                         setHasExistingSeats(true);
-                        // Calculate rows and cols from existing data
+                        // Calculate cols from existing data
                         const seats = res.data;
-                        // row is a char 'A', 'B'...
-                        let maxRowChar = 'A';
                         let maxCol = 0;
                         seats.forEach((s: any) => {
-                            if (s.row > maxRowChar) maxRowChar = s.row;
                             if (s.number > maxCol) maxCol = s.number;
                         });
-                        const rowCount = maxRowChar.charCodeAt(0) - 64; // A=65->1
-                        setSeatRows(rowCount);
                         setSeatCols(maxCol);
                     } else {
                         setHasExistingSeats(false);
-                        setSeatRows(5);
                         setSeatCols(10);
                     }
                 } catch (e) { console.error(e); }
@@ -167,48 +207,47 @@ const AdminDashboard: React.FC = () => {
         fetchMovies();
         fetchShowtimes();
         fetchBookings();
-    }, []);
+    }, [fetchMovies, fetchTheaters, fetchShowtimes, fetchBookings]);
 
-    const fetchBookings = async () => {
-        try {
-            const response = await api.get('/admin/bookings');
-            setBookings(response.data);
-        } catch (error) {
-            console.error('Error fetching bookings:', error);
+    // Fetch tiers when screen changes in showtime form
+    useEffect(() => {
+        if (newShowtime.screenId) {
+            fetchTiersForScreen(
+                newShowtime.screenId,
+                setSelectedScreenTiers,
+                (prices) => setNewShowtime(prev => ({ ...prev, tierPrices: prices }))
+            );
+        } else {
+            setSelectedScreenTiers([]);
         }
-    };
+    }, [newShowtime.screenId, fetchTiersForScreen]);
 
-    const fetchTheaters = async () => {
-        try {
-            const response = await api.get('/admin/theaters');
-            setTheaters(response.data);
-        } catch (error) { console.error(error); }
-    };
-
-    const fetchMovies = async () => {
-        try {
-            const response = await api.get('/movies');
-            setMovies(response.data);
-        } catch (error) { console.error(error); }
-    };
-
-    const fetchShowtimes = async () => {
-        try {
-            // Since we don't have a global get all showtimes endpoint (yet?), 
-            // we'll fetch them per theater or per movie if needed, 
-            // but for simplicity let's assume one exists or we just fetch by movies we have.
-            // Actually, I'll add a global one in the backend or just loop.
-            // Let's assume there is /api/showtimes/all or similar.
-            // For now, let's just make sure the UI can list them if we had them.
-            // I'll add a helper in backend for this.
-            const response = await api.get('/admin/showtimes');
-            setShowtimes(response.data);
-        } catch (error) { console.error(error); }
-    };
+    // Fetch tiers when screen changes in EDIT modal
+    useEffect(() => {
+        if (editingShowtime?.screenId) {
+            fetchTiersForScreen(
+                editingShowtime.screenId,
+                setEditingScreenTiers,
+                (prices) => {
+                    setEditingShowtime(prev => prev ? ({
+                        ...prev,
+                        tierPrices: { ...prices, ...(prev.tierPrices || {}) }
+                    }) : null);
+                }
+            );
+        } else {
+            setEditingScreenTiers([]);
+        }
+    }, [editingShowtime?.screenId, fetchTiersForScreen]);
 
     const handleUpdateMovie = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingMovie) return;
+        if ((editingMovie.duration || 0) <= 0) {
+            alert('Duration must be greater than 0 minutes.');
+            return;
+        }
+
         try {
             await api.put(`/movies/${editingMovie.id}`, editingMovie);
             setEditingMovie(null);
@@ -271,6 +310,11 @@ const AdminDashboard: React.FC = () => {
 
     const handleAddMovie = async (e: React.FormEvent) => {
         e.preventDefault();
+        if ((newMovie.duration || 0) <= 0) {
+            alert('Duration must be greater than 0 minutes.');
+            return;
+        }
+
         try {
             // Filter out empty releaseDate so it sends undefined (or null) if not provided, letting backend handle it or error clearly
             const payload = { ...newMovie, releaseDate: newMovie.releaseDate || undefined };
@@ -313,13 +357,14 @@ const AdminDashboard: React.FC = () => {
     const handleAddShowtime = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            if (!newShowtime.startTime || !newShowtime.movieId || !newShowtime.screenId) {
-                alert('Please fill in all fields (Movie, Screen, Start Time)');
+            if (!newShowtimeDate || !newShowtimeTime || !newShowtime.movieId || !newShowtime.screenId) {
+                alert('Please fill in all fields (Movie, Screen, Date, Time)');
                 return;
             }
 
             const movie = movies.find(m => m.id === newShowtime.movieId);
-            const start = new Date(newShowtime.startTime);
+            const startStr = `${newShowtimeDate}T${newShowtimeTime}`;
+            const start = new Date(startStr);
             const durationMs = (movie ? movie.duration : 120) * 60000;
             const end = new Date(start.getTime() + durationMs);
 
@@ -332,7 +377,9 @@ const AdminDashboard: React.FC = () => {
             await api.post('/showtimes', payload);
             alert('Showtime initialized successfully!');
             // Reset to empty strings for strings, 0 for IDs to avoid validation issues
-            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 150 });
+            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} });
+            setNewShowtimeDate('');
+            setNewShowtimeTime('');
             fetchShowtimes(); // Refresh the showtimes list
         } catch (error: any) {
             console.error(error);
@@ -358,21 +405,39 @@ const AdminDashboard: React.FC = () => {
             });
             setNewScreenName('');
             fetchTheaters();
-            alert('Screen added successfully!');
+            alert('Screen added successfully! Please configure the seat layout for the new screen.');
         } catch (error: any) {
             console.error(error);
             alert(error.response?.data?.message || 'Failed to add screen');
         }
     };
 
+    const handleUpdateScreen = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingScreen) return;
+        try {
+            await api.put(`/admin/screens/${editingScreen.id}`, { name: editingScreen.name });
+            setEditingScreen(null);
+            fetchTheaters();
+            alert('Screen renamed successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert(error.response?.data?.message || 'Failed to rename screen');
+        }
+    };
+
     const handleGenerateSeats = async (screenId: number) => {
         try {
             await api.post('/admin/seats/generate', {
-                screenId, rows: seatRows, cols: seatCols, price: seatPrice,
+                screenId, cols: seatCols, tiers: seatTiers,
             });
             alert('Seats generated!');
             setGenScreenId(null);
-        } catch (error) { console.error(error); }
+            fetchTheaters();
+        } catch (error: any) {
+            console.error(error);
+            alert(error.response?.data?.message || 'Failed to generate seats');
+        }
     };
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -569,6 +634,7 @@ const AdminDashboard: React.FC = () => {
                                                             <span className="font-bold text-sm whitespace-nowrap">{screen.name}</span>
                                                         </div>
                                                         <div className="flex gap-2 shrink-0">
+                                                            <button onClick={() => setEditingScreen({ id: screen.id, name: screen.name })} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 sm:px-4 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all whitespace-nowrap">Edit Name</button>
                                                             <button onClick={() => setGenScreenId(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-4 py-2 sm:px-5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all whitespace-nowrap">
                                                                 <span className="hidden sm:inline">Layout</span> Config
                                                             </button>
@@ -584,6 +650,22 @@ const AdminDashboard: React.FC = () => {
                                                     <button className="bg-green-600 px-8 rounded-2xl font-black text-sm">Save</button>
                                                     <button type="button" onClick={() => setSelectedTheaterId(null)} className="text-gray-500 font-bold p-2">✕</button>
                                                 </motion.form>
+                                            )}
+
+                                            {/* Screen Rename Modal (Inline-ish) */}
+                                            {editingScreen && theaters.find(t => t.screens?.some(s => s.id === editingScreen.id))?.id === theater.id && (
+                                                <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 sm:p-10 pointer-events-none">
+                                                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-[#0a0a0b] border border-white/10 w-full max-w-md rounded-[40px] shadow-2xl p-10 pointer-events-auto">
+                                                        <h3 className="text-xl font-black mb-6">Rename Functional Node</h3>
+                                                        <form onSubmit={handleUpdateScreen} className="space-y-6">
+                                                            <input type="text" value={editingScreen.name} onChange={e => setEditingScreen({ ...editingScreen, name: e.target.value })} className="premium-input w-full" required />
+                                                            <div className="flex gap-4">
+                                                                <button className="neon-button flex-1">Update Name</button>
+                                                                <button type="button" onClick={() => setEditingScreen(null)} className="flex-1 bg-white/5 hover:bg-white/10 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">Cancel</button>
+                                                            </div>
+                                                        </form>
+                                                    </motion.div>
+                                                </div>
                                             )}
                                         </div>
                                     ))}
@@ -768,32 +850,67 @@ const AdminDashboard: React.FC = () => {
                                         <Calendar className="text-blue-500 w-5 h-5" />
                                         Schedule Operational Session
                                     </h2>
-                                    <form onSubmit={handleAddShowtime} className="grid grid-cols-3 gap-8">
-                                        <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Feature</label>
-                                            <select onChange={e => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="premium-input w-full appearance-none">
-                                                <option value="">Select Movie</option>
-                                                {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Screen</label>
-                                            <select onChange={e => setNewShowtime({ ...newShowtime, screenId: parseInt(e.target.value) })} className="premium-input w-full appearance-none">
-                                                <option value="">Select Screen</option>
-                                                {theaters.map(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
-                                            </select>
-                                        </div>
-                                        <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Session Data</label>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <input type="datetime-local" onChange={e => setNewShowtime({ ...newShowtime, startTime: e.target.value })} className="premium-input" />
-                                                <div className="relative">
-                                                    <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                                                    <input type="number" placeholder="Price" value={newShowtime.price} onChange={e => setNewShowtime({ ...newShowtime, price: parseFloat(e.target.value) })} className="premium-input pl-10 w-full" />
-                                                </div>
+                                    <form onSubmit={handleAddShowtime} className="space-y-8">
+                                        <div className="grid grid-cols-2 gap-8">
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Feature</label>
+                                                <select value={newShowtime.movieId || ''} onChange={e => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="premium-input w-full appearance-none">
+                                                    <option value="">Select Movie</option>
+                                                    {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Screen</label>
+                                                <select value={newShowtime.screenId || ''} onChange={e => setNewShowtime({ ...newShowtime, screenId: parseInt(e.target.value) })} className="premium-input w-full appearance-none">
+                                                    <option value="">Select Screen</option>
+                                                    {theaters.map(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
+                                                </select>
                                             </div>
                                         </div>
-                                        <button className="neon-button col-span-3">Initialize Showtime</button>
+
+                                        <div className="grid grid-cols-2 gap-8">
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Date</label>
+                                                <input type="date" value={newShowtimeDate} onChange={e => setNewShowtimeDate(e.target.value)} className="premium-input w-full" />
+                                            </div>
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Start Time</label>
+                                                <input type="time" value={newShowtimeTime} onChange={e => setNewShowtimeTime(e.target.value)} className="premium-input w-full" />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div className="flex justify-between items-center px-1">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Pricing Configuration</label>
+                                                {selectedScreenTiers.length === 0 && (
+                                                    <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded">No tiers detected</span>
+                                                )}
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-6">
+                                                {selectedScreenTiers.map(tier => (
+                                                    <div key={tier} className="relative group">
+                                                        <div className="absolute -top-2 left-3 bg-[#0a0a0b] px-2 text-[8px] font-black text-blue-500 uppercase tracking-widest z-10 transition-all group-focus-within:text-white">
+                                                            Tier: {tier}
+                                                        </div>
+                                                        <div className="relative">
+                                                            <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-600" />
+                                                            <input
+                                                                type="number"
+                                                                value={newShowtime.tierPrices[tier] || ''}
+                                                                onChange={e => setNewShowtime({
+                                                                    ...newShowtime,
+                                                                    tierPrices: { ...newShowtime.tierPrices, [tier]: parseFloat(e.target.value) || 0 }
+                                                                })}
+                                                                className="premium-input pl-10 w-full"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <button className="neon-button w-full py-6">Initialize Operational Session</button>
                                     </form>
                                 </div>
 
@@ -820,7 +937,7 @@ const AdminDashboard: React.FC = () => {
                                                 </div>
                                                 <div className="flex items-center gap-6">
                                                     <div className="text-right">
-                                                        <p className="font-black text-lg">₹{st.price}</p>
+                                                        <p className="font-black text-xs text-blue-500 uppercase tracking-widest">Tiered</p>
                                                         <p className="text-[8px] font-black uppercase opacity-50 tracking-widest">Pricing</p>
                                                     </div>
                                                     <div className="flex gap-2">
@@ -871,26 +988,42 @@ const AdminDashboard: React.FC = () => {
                                                         {theaters.map(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
                                                     </select>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-6">
-                                                    <div className="space-y-3">
-                                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Start Time</label>
-                                                        <input
-                                                            type="datetime-local"
-                                                            value={toLocalDateString(editingShowtime.startTime)}
-                                                            onChange={e => setEditingShowtime({ ...editingShowtime, startTime: e.target.value })}
-                                                            className="premium-input w-full"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-3">
-                                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Price (₹)</label>
-                                                        <input
-                                                            type="number"
-                                                            value={editingShowtime.price}
-                                                            onChange={e => setEditingShowtime({ ...editingShowtime, price: parseFloat(e.target.value) })}
-                                                            className="premium-input w-full"
-                                                        />
-                                                    </div>
+                                                <div className="space-y-3">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Start Time</label>
+                                                    <input
+                                                        type="datetime-local"
+                                                        value={toLocalDateString(editingShowtime.startTime)}
+                                                        onChange={e => setEditingShowtime({ ...editingShowtime, startTime: e.target.value })}
+                                                        className="premium-input w-full"
+                                                    />
                                                 </div>
+
+                                                {editingScreenTiers.length > 0 && (
+                                                    <div className="space-y-4 pt-2">
+                                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tier Pricing (₹)</label>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            {editingScreenTiers.map((tier: string) => (
+                                                                <div key={tier} className="relative group">
+                                                                    <div className="absolute -top-2 left-3 bg-[#0a0a0b] px-2 text-[8px] font-black text-blue-500 uppercase tracking-widest z-10 transition-all group-focus-within:text-white">
+                                                                        {tier}
+                                                                    </div>
+                                                                    <div className="relative">
+                                                                        <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-600" />
+                                                                        <input
+                                                                            type="number"
+                                                                            value={(editingShowtime.tierPrices && editingShowtime.tierPrices[tier]) || ''}
+                                                                            onChange={e => setEditingShowtime({
+                                                                                ...editingShowtime,
+                                                                                tierPrices: { ...(editingShowtime.tierPrices || {}), [tier]: parseFloat(e.target.value) || 0 }
+                                                                            })}
+                                                                            className="premium-input pl-10 w-full"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 <div className="flex gap-4 pt-4">
                                                     <button className="neon-button flex-1">Apply Changes</button>
                                                     <button type="button" onClick={() => setEditingShowtime(null)} className="flex-1 bg-white/5 hover:bg-white/10 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">Cancel</button>
@@ -946,47 +1079,114 @@ const AdminDashboard: React.FC = () => {
 
             {/* Layout Configuration Modal */}
             <AnimatePresence>
-                {genScreenId && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-[#0a0a0b]/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
-                    >
+                {
+                    genScreenId && (
                         <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="glass-card p-6 sm:p-12 rounded-[32px] sm:rounded-[48px] max-w-sm w-full mx-4"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-[#0a0a0b]/80 backdrop-blur-xl flex items-center justify-center p-4 z-[90]"
                         >
-                            <div className="text-center mb-10">
-                                <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600/10 rounded-[28px] border border-blue-500/20 mb-6 font-black text-blue-500">S</div>
-                                <h3 className="text-3xl font-black tracking-tight leading-none mb-2 text-white">Spatial Layout</h3>
-                                <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Protocol Version 4.0</p>
-                            </div>
-
-                            <div className="space-y-8">
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="space-y-3">
-                                        <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest ml-1">Grid Rows</label>
-                                        <input type="number" value={seatRows} onChange={(e) => setSeatRows(parseInt(e.target.value))} className="premium-input w-full text-center" />
-                                    </div>
-                                    <div className="space-y-3">
-                                        <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest ml-1">Grid Cols</label>
-                                        <input type="number" value={seatCols} onChange={(e) => setSeatCols(parseInt(e.target.value))} className="premium-input w-full text-center" />
-                                    </div>
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="glass-card p-4 sm:p-12 rounded-[32px] sm:rounded-[48px] max-w-xl w-full mx-4 overflow-y-auto max-h-[90vh]"
+                            >
+                                <div className="text-center mb-8">
+                                    <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600/10 rounded-2xl border border-blue-500/20 mb-4 font-black text-blue-500">S</div>
+                                    <h3 className="text-2xl font-black tracking-tight leading-none mb-2 text-white">Spatial Architect</h3>
+                                    <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Multi-Tier Grid Engine</p>
                                 </div>
 
-                                <button onClick={() => handleGenerateSeats(genScreenId!)} className="neon-button w-full">
-                                    {hasExistingSeats ? 'Update Layout (Overwrite)' : 'Execute Generation'}
-                                </button>
-                                <button onClick={() => setGenScreenId(null)} className="w-full text-gray-600 font-bold hover:text-white transition-colors">Discard Configuration</button>
-                            </div>
+                                <div className="space-y-8">
+                                    <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Columns</label>
+                                        <input type="number" value={seatCols} onChange={(e) => setSeatCols(parseInt(e.target.value))} className="premium-input w-24 text-center !bg-gray-900" />
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest ml-1">Tier Definitions</label>
+                                            <button
+                                                onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 150 }])}
+                                                className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:text-blue-400"
+                                            >
+                                                + Add Tier
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {seatTiers.map((tier, idx) => (
+                                                <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-white/5 p-4 rounded-2xl border border-white/10 group">
+                                                    <div className="col-span-4">
+                                                        <input
+                                                            type="text"
+                                                            value={tier.name}
+                                                            placeholder="Tier Name"
+                                                            onChange={e => {
+                                                                const newTiers = [...seatTiers];
+                                                                newTiers[idx].name = e.target.value;
+                                                                setSeatTiers(newTiers);
+                                                            }}
+                                                            className="premium-input w-full !text-sm !h-10"
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-3">
+                                                        <input
+                                                            type="number"
+                                                            value={tier.rows}
+                                                            placeholder="Rows"
+                                                            onChange={e => {
+                                                                const newTiers = [...seatTiers];
+                                                                newTiers[idx].rows = parseInt(e.target.value);
+                                                                setSeatTiers(newTiers);
+                                                            }}
+                                                            className="premium-input w-full !text-sm !h-10 text-center"
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-3">
+                                                        <input
+                                                            type="number"
+                                                            value={tier.price}
+                                                            placeholder="Price"
+                                                            onChange={e => {
+                                                                const newTiers = [...seatTiers];
+                                                                newTiers[idx].price = parseFloat(e.target.value);
+                                                                setSeatTiers(newTiers);
+                                                            }}
+                                                            className="premium-input w-full !text-sm !h-10 text-center"
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-2 flex justify-end">
+                                                        <button
+                                                            onClick={() => setSeatTiers(seatTiers.filter((_, i) => i !== idx))}
+                                                            className="w-8 h-8 rounded-lg hover:bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all font-black"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="p-3 text-[9px] text-gray-500 font-bold uppercase tracking-widest text-center">
+                                            Total Rows: {seatTiers.reduce((acc, t) => acc + (t.rows || 0), 0)} (A-{String.fromCharCode(64 + seatTiers.reduce((acc, t) => acc + (t.rows || 0), 0))})
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 pt-4 border-t border-white/5">
+                                        <button onClick={() => handleGenerateSeats(genScreenId!)} className="neon-button w-full">
+                                            {hasExistingSeats ? 'Update Layout (Overwrite)' : 'Execute Generation'}
+                                        </button>
+                                        <button onClick={() => setGenScreenId(null)} className="w-full text-gray-600 text-xs font-black uppercase tracking-widest hover:text-white transition-colors">Abort Node Setup</button>
+                                    </div>
+                                </div>
+                            </motion.div>
                         </motion.div>
-                    </motion.div>
-                )}
+                    )
+                }
             </AnimatePresence>
-        </div >
+        </div>
     );
 };
 

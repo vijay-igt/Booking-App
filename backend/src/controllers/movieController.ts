@@ -10,6 +10,11 @@ export const createMovie = async (req: Request, res: Response): Promise<void> =>
     try {
         const { title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate, language, audio, format } = req.body;
 
+        if (duration <= 0) {
+            res.status(400).json({ message: 'Duration must be greater than 0 minutes.' });
+            return;
+        }
+
         // Standardize releaseDate
         const formattedDate = releaseDate === '' ? null : releaseDate;
 
@@ -68,6 +73,11 @@ export const updateMovie = async (req: Request, res: Response): Promise<void> =>
 
         // Standardize releaseDate
         const formattedDate = releaseDate === '' ? null : releaseDate;
+
+        if (duration <= 0) {
+            res.status(400).json({ message: 'Duration must be greater than 0 minutes.' });
+            return;
+        }
 
         await movie.update({ title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate: formattedDate, language, audio, format });
         res.json(movie);

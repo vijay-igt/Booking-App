@@ -35,7 +35,7 @@ export class Seat extends Model {
     declare number: number;
 
     @Column({
-        type: DataType.ENUM('Regular', 'Premium'),
+        type: DataType.STRING,
         allowNull: false,
         defaultValue: 'Regular',
     })

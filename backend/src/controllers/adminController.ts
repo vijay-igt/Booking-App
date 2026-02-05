@@ -90,51 +90,56 @@ export const deleteScreen = async (req: Request, res: Response): Promise<void> =
 
 export const generateSeats = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { screenId, rows, cols, price } = req.body;
+        const { screenId, cols, tiers } = req.body;
+        // tiers: [{ name: string, rows: number, price: number }]
+
+        if (!tiers || tiers.length === 0) {
+            res.status(400).json({ message: 'At least one tier must be defined.' });
+            return;
+        }
+
+        if (cols <= 0) {
+            res.status(400).json({ message: 'Columns must be greater than 0.' });
+            return;
+        }
+
         const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-        // 1. Fetch all existing seats for this screen
         const existingSeats = await Seat.findAll({ where: { screenId } });
-
-        // Map simplified key (Row-Num) to Seat ID
         const existingSeatMap = new Map<string, Seat>();
         existingSeats.forEach(seat => {
-            // console.log(`Existing: ${seat.row}-${seat.number} (ID: ${seat.id})`);
             existingSeatMap.set(`${seat.row}-${seat.number}`, seat);
         });
-
-        console.log(`Found ${existingSeats.length} existing seats for Screen ${screenId}`);
 
         const seatsToCreate = [];
         const seatIdsToKeep = new Set<number>();
         let updatedCount = 0;
+        let currentRowIndex = 0;
 
-        // 2. Iterate through new layout
-        for (let r = 0; r < rows; r++) {
-            const rowLabel = characters[r];
-            for (let c = 1; c <= cols; c++) {
-                const key = `${rowLabel}-${c}`;
-                const existingSeat = existingSeatMap.get(key);
+        // Iterate through tiers
+        for (const tier of tiers) {
+            for (let r = 0; r < tier.rows; r++) {
+                const rowLabel = characters[currentRowIndex];
+                for (let c = 1; c <= cols; c++) {
+                    const key = `${rowLabel}-${c}`;
+                    const existingSeat = existingSeatMap.get(key);
 
-                if (existingSeat) {
-                    // Update existing seat if needed (e.g. price change)
-                    // We preserve the ID, so all bookings stay valid!
-                    updatedCount++;
-                    existingSeat.price = price || 150.00;
-                    existingSeat.type = 'Regular'; // Reset to regular or keep? Assuming reset for generated layout
-                    await existingSeat.save();
-                    seatIdsToKeep.add(existingSeat.id);
-                } else {
-                    // Start collecting new seats to bulk create
-                    seatsToCreate.push({
-                        screenId,
-                        row: rowLabel,
-                        number: c,
-                        type: 'Regular',
-                        price: price || 150.00,
-                        status: 'available',
-                    });
+                    if (existingSeat) {
+                        updatedCount++;
+                        existingSeat.price = tier.price;
+                        existingSeat.type = tier.name;
+                        await existingSeat.save();
+                        seatIdsToKeep.add(existingSeat.id);
+                    } else {
+                        seatsToCreate.push({
+                            screenId,
+                            row: rowLabel,
+                            number: c,
+                            type: tier.name,
+                            price: tier.price,
+                        });
+                    }
                 }
+                currentRowIndex++;
             }
         }
 

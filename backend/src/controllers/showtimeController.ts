@@ -9,9 +9,14 @@ import { Booking } from '../models/Booking';
 
 export const createShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { movieId, screenId, startTime, endTime, price } = req.body;
+        const { movieId, screenId, startTime, endTime, tierPrices } = req.body;
 
-        console.log('Creating showtime:', { movieId, screenId, startTime, endTime, price });
+        if (!tierPrices || Object.keys(tierPrices).length === 0) {
+            res.status(400).json({ message: 'At least one tier price must be configured.' });
+            return;
+        }
+
+        console.log('Creating showtime:', { movieId, screenId, startTime, endTime });
 
         // Convert to Date objects for proper comparison
         const newStart = new Date(startTime);
@@ -61,7 +66,7 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        const showtime = await Showtime.create({ movieId, screenId, startTime, endTime, price });
+        const showtime = await Showtime.create({ movieId, screenId, startTime, endTime, tierPrices });
         console.log('Showtime created successfully:', showtime.id);
         res.status(201).json(showtime);
     } catch (error) {
@@ -122,14 +127,25 @@ export const getShowtimeSeats = async (req: Request, res: Response): Promise<voi
 
         const bookedSeatIds = bookedTickets.map(t => t.seatId);
 
-        const seatsWithStatus = physicalSeats.map(seat => ({
-            id: seat.id,
-            row: seat.row,
-            number: seat.number,
-            type: seat.type,
-            price: showtime.price,
-            status: bookedSeatIds.includes(seat.id) ? 'booked' : 'available',
-        }));
+        const seatsWithStatus = physicalSeats.map(seat => {
+            let finalPrice = 0;
+            if (showtime.tierPrices && showtime.tierPrices[seat.type]) {
+                finalPrice = showtime.tierPrices[seat.type];
+            } else if (showtime.tierPrices) {
+                // Fallback to first available tier price if specific mapping missing
+                const firstTier = Object.keys(showtime.tierPrices)[0];
+                finalPrice = showtime.tierPrices[firstTier] || 0;
+            }
+
+            return {
+                id: seat.id,
+                row: seat.row,
+                number: seat.number,
+                type: seat.type,
+                price: finalPrice,
+                status: bookedSeatIds.includes(seat.id) ? 'booked' : 'available',
+            };
+        });
 
         res.json(seatsWithStatus);
     } catch (error) {
@@ -140,7 +156,7 @@ export const getShowtimeSeats = async (req: Request, res: Response): Promise<voi
 export const updateShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id as string);
-        const { movieId, screenId, startTime, endTime, price } = req.body;
+        const { movieId, screenId, startTime, endTime, tierPrices } = req.body;
 
         const showtime = await Showtime.findByPk(id);
         if (!showtime) {
@@ -186,7 +202,7 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
             }
         }
 
-        await showtime.update({ movieId, screenId, startTime, endTime, price });
+        await showtime.update({ movieId, screenId, startTime, endTime, tierPrices });
         res.json(showtime);
     } catch (error) {
         console.error('Error updating showtime:', error);

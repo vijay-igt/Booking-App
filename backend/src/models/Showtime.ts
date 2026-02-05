@@ -47,9 +47,16 @@ export class Showtime extends Model {
 
     @Column({
         type: DataType.DECIMAL(10, 2),
-        allowNull: false,
+        allowNull: true,
+        defaultValue: null
     })
-    declare price: number;
+    declare price?: number;
+
+    @Column({
+        type: DataType.JSON,
+        allowNull: true,
+    })
+    declare tierPrices: any; // e.g. { "Classic": 150, "Premium": 300 }
 
     @HasMany(() => Booking)
     declare bookings: Booking[];
