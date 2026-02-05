@@ -8,7 +8,7 @@ import {
     Plus,
     MapPin,
     Clock,
-    DollarSign,
+    IndianRupee,
     LogOut,
     Search,
     Upload,
@@ -122,6 +122,15 @@ const AdminDashboard: React.FC = () => {
     const [seatCols, setSeatCols] = useState(10);
     const [seatPrice] = useState(150);
     const [hasExistingSeats, setHasExistingSeats] = useState(false);
+
+    // Helper to format ISO UTC string to YYYY-MM-DDTHH:mm for datetime-local inputs
+    const toLocalDateString = (isoString: string) => {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        const offset = date.getTimezoneOffset() * 60000;
+        const localDate = new Date(date.getTime() - offset);
+        return localDate.toISOString().slice(0, 16);
+    };
 
     useEffect(() => {
         if (genScreenId) {
@@ -314,6 +323,7 @@ const AdminDashboard: React.FC = () => {
 
             await api.post('/showtimes', payload);
             alert('Showtime initialized successfully!');
+            // Reset to empty strings for strings, 0 for IDs to avoid validation issues
             setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', price: 150 });
             fetchShowtimes(); // Refresh the showtimes list
         } catch (error: any) {
@@ -762,7 +772,7 @@ const AdminDashboard: React.FC = () => {
                                             <div className="grid grid-cols-2 gap-4">
                                                 <input type="datetime-local" onChange={e => setNewShowtime({ ...newShowtime, startTime: e.target.value })} className="premium-input" />
                                                 <div className="relative">
-                                                    <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                                                    <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
                                                     <input type="number" placeholder="Price" value={newShowtime.price} onChange={e => setNewShowtime({ ...newShowtime, price: parseFloat(e.target.value) })} className="premium-input pl-10 w-full" />
                                                 </div>
                                             </div>
@@ -850,7 +860,7 @@ const AdminDashboard: React.FC = () => {
                                                         <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Start Time</label>
                                                         <input
                                                             type="datetime-local"
-                                                            value={editingShowtime.startTime.slice(0, 16)}
+                                                            value={toLocalDateString(editingShowtime.startTime)}
                                                             onChange={e => setEditingShowtime({ ...editingShowtime, startTime: e.target.value })}
                                                             className="premium-input w-full"
                                                         />
