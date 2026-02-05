@@ -503,7 +503,7 @@ const AdminDashboard: React.FC = () => {
                                     </form>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-8">
+                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                                     {theaters.map(theater => (
                                         <div key={theater.id} className="glass-card p-8 rounded-[40px] hover:border-white/20 transition-all group">
                                             <div className="flex justify-between items-start mb-8">
@@ -521,14 +521,16 @@ const AdminDashboard: React.FC = () => {
 
                                             <div className="space-y-3">
                                                 {theater.screens?.map(screen => (
-                                                    <div key={screen.id} className="flex justify-between items-center p-5 bg-white/5 rounded-3xl border border-transparent hover:border-white/10 transition-all">
+                                                    <div key={screen.id} className="flex flex-wrap gap-4 justify-between items-center p-5 bg-white/5 rounded-3xl border border-transparent hover:border-white/10 transition-all">
                                                         <div className="flex items-center gap-4">
                                                             <div className="w-8 h-8 rounded-xl bg-gray-900 border border-white/5 flex items-center justify-center text-[10px] font-black">{screen.name.split(' ')[1] || 'S'}</div>
-                                                            <span className="font-bold text-sm">{screen.name}</span>
+                                                            <span className="font-bold text-sm whitespace-nowrap">{screen.name}</span>
                                                         </div>
-                                                        <div className="flex gap-2">
-                                                            <button onClick={() => setGenScreenId(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-6 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all">Config Layout</button>
-                                                            <button onClick={() => handleDeleteScreen(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-2xl bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 transition-all">Delete</button>
+                                                        <div className="flex gap-2 shrink-0">
+                                                            <button onClick={() => setGenScreenId(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-4 py-2 sm:px-5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                                                                <span className="hidden sm:inline">Layout</span> Config
+                                                            </button>
+                                                            <button onClick={() => handleDeleteScreen(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 sm:px-4 sm:py-3 rounded-2xl bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 transition-all whitespace-nowrap">Delete</button>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -905,7 +907,7 @@ const AdminDashboard: React.FC = () => {
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
-                            className="glass-card p-12 rounded-[48px] max-w-sm w-full"
+                            className="glass-card p-6 sm:p-12 rounded-[32px] sm:rounded-[48px] max-w-sm w-full mx-4"
                         >
                             <div className="text-center mb-10">
                                 <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600/10 rounded-[28px] border border-blue-500/20 mb-6 font-black text-blue-500">S</div>
