@@ -279,6 +279,20 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    const handleDeleteMovie = async (id: number) => {
+        if (!confirm('Are you sure you want to delete this movie? This will also delete all associated showtimes if there are no active bookings.')) {
+            return;
+        }
+        try {
+            await api.delete(`/movies/${id}`);
+            fetchMovies();
+            alert('Movie deleted successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert('Failed to delete movie: ' + (error.response?.data?.message || error.message));
+        }
+    };
+
     const handleAddShowtime = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -613,14 +627,22 @@ const AdminDashboard: React.FC = () => {
                                                 </div>
                                             </div>
                                             <div className="p-8">
-                                                <div className="flex justify-between items-start mb-2">
+                                                <div className="flex justify-between items-start mb-2 gap-4">
                                                     <h3 className="font-black text-lg truncate leading-tight flex-1">{movie.title}</h3>
-                                                    <button
-                                                        onClick={() => setEditingMovie(movie)}
-                                                        className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors"
-                                                    >
-                                                        Edit
-                                                    </button>
+                                                    <div className="flex gap-4">
+                                                        <button
+                                                            onClick={() => setEditingMovie(movie)}
+                                                            className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors"
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteMovie(movie.id)}
+                                                            className="text-[10px] font-black uppercase text-red-500 hover:text-red-400 transition-colors"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
                                                 </div>
                                                 <div className="flex items-center gap-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">
                                                     <span>{movie.genre}</span>

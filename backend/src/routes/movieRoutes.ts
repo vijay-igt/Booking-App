@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createMovie, getMovies, getMovieById, updateMovie } from '../controllers/movieController';
+import { createMovie, getMovies, getMovieById, updateMovie, deleteMovie } from '../controllers/movieController';
 import { createShowtime, getShowtimesByMovie, getShowtimesByScreen, getShowtimeSeats, updateShowtime, deleteShowtime } from '../controllers/showtimeController';
 
 const router = Router();
@@ -9,6 +9,7 @@ router.post('/movies', createMovie);
 router.get('/movies', getMovies);
 router.get('/movies/:id', getMovieById);
 router.put('/movies/:id', updateMovie);
+router.delete('/movies/:id', deleteMovie);
 
 // Showtime routes
 router.post('/showtimes', createShowtime);

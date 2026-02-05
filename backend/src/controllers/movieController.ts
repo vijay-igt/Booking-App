@@ -4,6 +4,7 @@ import { Movie } from '../models/Movie';
 import { Showtime } from '../models/Showtime';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
+import { Booking } from '../models/Booking';
 
 export const createMovie = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -73,5 +74,45 @@ export const updateMovie = async (req: Request, res: Response): Promise<void> =>
     } catch (error) {
         console.error('Update Movie Error:', error);
         res.status(500).json({ message: 'Error updating movie', error });
+    }
+};
+
+export const deleteMovie = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const id = parseInt(req.params.id as string);
+        const movie = await Movie.findByPk(id, {
+            include: [{
+                model: Showtime,
+                include: [Booking]
+            }]
+        });
+
+        if (!movie) {
+            res.status(404).json({ message: 'Movie not found' });
+            return;
+        }
+
+        // Safety check: Check if any showtime has active bookings
+        const hasBookings = movie.showtimes?.some(st => st.bookings && st.bookings.length > 0);
+
+        if (hasBookings) {
+            res.status(400).json({
+                message: 'Cannot delete movie because it has active bookings. Please cancel bookings first.'
+            });
+            return;
+        }
+
+        // If no bookings, we can safely delete associated showtimes and the movie
+        // Sequelize will handle cascading if configured, but let's be explicit if needed
+        // For this implementation, we assume we want to delete all associated showtimes
+        if (movie.showtimes && movie.showtimes.length > 0) {
+            await Showtime.destroy({ where: { movieId: id } });
+        }
+
+        await movie.destroy();
+        res.json({ message: 'Movie and associated showtimes deleted successfully.' });
+    } catch (error) {
+        console.error('Delete Movie Error:', error);
+        res.status(500).json({ message: 'Error deleting movie', error });
     }
 };
