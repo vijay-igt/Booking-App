@@ -185,18 +185,54 @@ const AdminDashboard: React.FC = () => {
                     const res = await api.get(`/admin/seats/${genScreenId}`);
                     if (res.data && res.data.length > 0) {
                         setHasExistingSeats(true);
-                        // Calculate cols from existing data
                         const seats = res.data;
+
+                        // 1. Calculate max columns
                         let maxCol = 0;
                         seats.forEach((s: any) => {
                             if (s.number > maxCol) maxCol = s.number;
                         });
                         setSeatCols(maxCol);
+
+                        // 2. Group seats by row
+                        const rowsMap = new Map<string, { type: string; price: number }>();
+                        seats.forEach((s: any) => {
+                            if (!rowsMap.has(s.row)) {
+                                rowsMap.set(s.row, { type: s.type, price: Number(s.price) });
+                            }
+                        });
+
+                        // 3. Sort rows by label (A, B, C...)
+                        const sortedRowLabels = Array.from(rowsMap.keys()).sort();
+
+                        // 4. Group contiguous rows of SAME type & price into tiers
+                        const reconstructedTiers: { name: string; rows: number; price: number }[] = [];
+                        let currentTier: { name: string; rows: number; price: number } | null = null;
+
+                        sortedRowLabels.forEach((label) => {
+                            const rowData = rowsMap.get(label)!;
+
+                            if (!currentTier || currentTier.name !== rowData.type || currentTier.price !== rowData.price) {
+                                // Start new tier
+                                if (currentTier) reconstructedTiers.push(currentTier);
+                                currentTier = { name: rowData.type, rows: 1, price: rowData.price };
+                            } else {
+                                // Add to current tier
+                                currentTier.rows += 1;
+                            }
+                        });
+
+                        if (currentTier) reconstructedTiers.push(currentTier);
+                        setSeatTiers(reconstructedTiers);
+
                     } else {
                         setHasExistingSeats(false);
                         setSeatCols(10);
+                        setSeatTiers([{ name: 'Classic', rows: 5, price: 150 }]);
                     }
-                } catch (e) { console.error(e); }
+                } catch (e) {
+                    console.error(e);
+                }
             };
             fetchSeats();
         }

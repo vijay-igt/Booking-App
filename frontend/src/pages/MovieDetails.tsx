@@ -190,8 +190,8 @@ const MovieDetails: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-xl font-black text-white">₹{st.price}</p>
-                                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Per Ticket</p>
+                                        <p className="font-black text-xs text-blue-500 uppercase tracking-widest">Tiered</p>
+                                        <p className="text-[8px] font-black uppercase opacity-50 tracking-widest">Pricing</p>
                                     </div>
                                 </motion.div>
                             ))}
