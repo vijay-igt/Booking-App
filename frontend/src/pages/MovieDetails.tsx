@@ -12,6 +12,7 @@ interface Movie {
     duration: number;
     rating: string;
     posterUrl: string;
+    bannerUrl?: string;
     releaseDate: string;
     language: string;
     audio: string;
@@ -74,12 +75,12 @@ const MovieDetails: React.FC = () => {
     return (
         <div className="bg-[#0a0a0b] min-h-screen text-white pb-40" ref={containerRef}>
             {/* Parallax Hero */}
-            <div className="relative h-[75vh] w-full overflow-hidden">
+            <div className="relative h-[100vh] w-full overflow-hidden">
                 <motion.div style={{ y, opacity }} className="absolute inset-0 w-full h-full">
                     <img
-                        src={movie.posterUrl}
+                        src={movie.bannerUrl || movie.posterUrl}
                         alt={movie.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover object-center"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent"></div>
                 </motion.div>

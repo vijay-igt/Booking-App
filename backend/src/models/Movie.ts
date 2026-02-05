@@ -32,6 +32,9 @@ export class Movie extends Model {
     @Column(DataType.TEXT)
     declare posterUrl: string;
 
+    @Column(DataType.TEXT)
+    declare bannerUrl: string;
+
     @Column(DataType.DATEONLY)
     declare releaseDate: string;
 

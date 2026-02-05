@@ -12,7 +12,8 @@ import {
     LogOut,
     Search,
     Upload,
-    ExternalLink
+    ExternalLink,
+    Ticket as TicketIcon
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -38,6 +39,7 @@ interface Movie {
     duration: number;
     rating: string;
     posterUrl: string;
+    bannerUrl: string;
     releaseDate: string;
     language: string;
     audio: string;
@@ -57,11 +59,37 @@ interface Showtime {
     screen: Screen & { theater: Theater };
 }
 
+interface Booking {
+    id: number;
+    userId: number;
+    showtimeId: number;
+    totalAmount: number;
+    status: string;
+    createdAt: string;
+    user: {
+        name: string;
+        email: string;
+    };
+    showtime: {
+        startTime: string;
+        movie: {
+            title: string;
+        };
+        screen: {
+            name: string;
+            theater: {
+                name: string;
+            };
+        };
+    };
+}
+
 const AdminDashboard: React.FC = () => {
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes'>('theaters');
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings'>('theaters');
     const [theaters, setTheaters] = useState<Theater[]>([]);
     const [movies, setMovies] = useState<Movie[]>([]);
     const [showtimes, setShowtimes] = useState<Showtime[]>([]);
+    const [bookings, setBookings] = useState<Booking[]>([]);
     const auth = useContext(AuthContext);
     const navigate = useNavigate();
 
@@ -74,6 +102,7 @@ const AdminDashboard: React.FC = () => {
         duration: 120,
         rating: 'PG-13',
         posterUrl: '',
+        bannerUrl: '',
         releaseDate: '',
         language: 'English',
         audio: 'Dolby Atmos',
@@ -92,12 +121,53 @@ const AdminDashboard: React.FC = () => {
     const [seatRows, setSeatRows] = useState(5);
     const [seatCols, setSeatCols] = useState(10);
     const [seatPrice] = useState(150);
+    const [hasExistingSeats, setHasExistingSeats] = useState(false);
+
+    useEffect(() => {
+        if (genScreenId) {
+            const fetchSeats = async () => {
+                try {
+                    const res = await api.get(`/admin/seats/${genScreenId}`);
+                    if (res.data && res.data.length > 0) {
+                        setHasExistingSeats(true);
+                        // Calculate rows and cols from existing data
+                        const seats = res.data;
+                        // row is a char 'A', 'B'...
+                        let maxRowChar = 'A';
+                        let maxCol = 0;
+                        seats.forEach((s: any) => {
+                            if (s.row > maxRowChar) maxRowChar = s.row;
+                            if (s.number > maxCol) maxCol = s.number;
+                        });
+                        const rowCount = maxRowChar.charCodeAt(0) - 64; // A=65->1
+                        setSeatRows(rowCount);
+                        setSeatCols(maxCol);
+                    } else {
+                        setHasExistingSeats(false);
+                        setSeatRows(5);
+                        setSeatCols(10);
+                    }
+                } catch (e) { console.error(e); }
+            };
+            fetchSeats();
+        }
+    }, [genScreenId]);
 
     useEffect(() => {
         fetchTheaters();
         fetchMovies();
         fetchShowtimes();
+        fetchBookings();
     }, []);
+
+    const fetchBookings = async () => {
+        try {
+            const response = await api.get('/admin/bookings');
+            setBookings(response.data);
+        } catch (error) {
+            console.error('Error fetching bookings:', error);
+        }
+    };
 
     const fetchTheaters = async () => {
         try {
@@ -194,6 +264,7 @@ const AdminDashboard: React.FC = () => {
                 duration: 120,
                 rating: 'PG-13',
                 posterUrl: '',
+                bannerUrl: '',
                 releaseDate: '',
                 language: 'English',
                 audio: 'Dolby Atmos',
@@ -273,6 +344,43 @@ const AdminDashboard: React.FC = () => {
         reader.readAsDataURL(file);
     };
 
+    const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setNewMovie({ ...newMovie, bannerUrl: reader.result as string });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleEditPosterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            if (editingMovie) {
+                setEditingMovie({ ...editingMovie, posterUrl: reader.result as string });
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleEditBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            if (editingMovie) {
+                setEditingMovie({ ...editingMovie, bannerUrl: reader.result as string });
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleDeleteScreen = async (screenId: number) => {
         if (!confirm('Are you sure you want to delete this screen? This will also delete all associated seats and showtimes.')) {
             return;
@@ -301,10 +409,23 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    const handleDeleteBooking = async (bookingId: number) => {
+        if (!confirm('Are you sure you want to delete this booking?')) return;
+        try {
+            await api.delete(`/admin/bookings/${bookingId}`);
+            fetchBookings();
+            alert('Booking deleted successfully!');
+        } catch (error: any) {
+            console.error(error);
+            alert('Failed to delete booking: ' + (error.response?.data?.message || error.message));
+        }
+    };
+
     const menuItems = [
         { id: 'theaters', label: 'Theaters', icon: LayoutDashboard },
         { id: 'movies', label: 'Movies', icon: Film },
         { id: 'showtimes', label: 'Showtimes', icon: Calendar },
+        { id: 'bookings', label: 'Bookings', icon: TicketIcon },
     ] as const;
 
     return (
@@ -437,12 +558,31 @@ const AdminDashboard: React.FC = () => {
                                         <input type="text" placeholder="Feature Title" value={newMovie.title} onChange={e => setNewMovie({ ...newMovie, title: e.target.value })} className="premium-input" />
                                         <input type="text" placeholder="Primary Genre" value={newMovie.genre} onChange={e => setNewMovie({ ...newMovie, genre: e.target.value })} className="premium-input" />
                                         <input type="number" placeholder="Duration (min)" value={newMovie.duration} onChange={e => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="premium-input" />
-                                        <div className="relative group">
-                                            <input type="text" placeholder="Poster URL" value={newMovie.posterUrl} onChange={e => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="premium-input w-full pr-12" />
-                                            <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
-                                                <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                                            </label>
+                                        <div className="col-span-2 space-y-2">
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">📱 Poster (Card Thumbnail)</label>
+                                            <div className="relative group">
+                                                <input type="text" placeholder="Poster URL" value={newMovie.posterUrl} onChange={e => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="premium-input w-full pr-12" />
+                                                <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
+                                                    <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
+                                                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                                                </label>
+                                            </div>
+                                            {newMovie.posterUrl && (
+                                                <img src={newMovie.posterUrl} alt="Poster preview" className="w-full h-32 object-cover rounded-2xl border border-white/10" />
+                                            )}
+                                        </div>
+                                        <div className="col-span-2 space-y-2">
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">🎬 Banner (Hero Image)</label>
+                                            <div className="relative group">
+                                                <input type="text" placeholder="Banner URL" value={newMovie.bannerUrl} onChange={e => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="premium-input w-full pr-12" />
+                                                <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
+                                                    <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
+                                                    <input type="file" accept="image/*" onChange={handleBannerUpload} className="hidden" />
+                                                </label>
+                                            </div>
+                                            {newMovie.bannerUrl && (
+                                                <img src={newMovie.bannerUrl} alt="Banner preview" className="w-full h-32 object-cover rounded-2xl border border-white/10" />
+                                            )}
                                         </div>
                                         <div className="flex gap-4 col-span-2">
                                             <input type="text" placeholder="Rating (e.g. PG-13)" value={newMovie.rating} onChange={e => setNewMovie({ ...newMovie, rating: e.target.value })} className="premium-input w-full" />
@@ -509,8 +649,30 @@ const AdminDashboard: React.FC = () => {
                                                     <input type="number" value={editingMovie.duration} onChange={e => setEditingMovie({ ...editingMovie, duration: parseInt(e.target.value) })} className="premium-input w-full" />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Poster URL</label>
-                                                    <input type="text" value={editingMovie.posterUrl} onChange={e => setEditingMovie({ ...editingMovie, posterUrl: e.target.value })} className="premium-input w-full" />
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase">📱 Poster URL (Cards)</label>
+                                                    <div className="relative group">
+                                                        <input type="text" value={editingMovie.posterUrl} onChange={e => setEditingMovie({ ...editingMovie, posterUrl: e.target.value })} className="premium-input w-full pr-12" />
+                                                        <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
+                                                            <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
+                                                            <input type="file" accept="image/*" onChange={handleEditPosterUpload} className="hidden" />
+                                                        </label>
+                                                    </div>
+                                                    {editingMovie.posterUrl && (
+                                                        <img src={editingMovie.posterUrl} alt="Poster preview" className="w-full h-24 object-cover rounded-2xl border border-white/10" />
+                                                    )}
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase">🎬 Banner URL (Hero)</label>
+                                                    <div className="relative group">
+                                                        <input type="text" value={editingMovie.bannerUrl || ''} onChange={e => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="premium-input w-full pr-12" />
+                                                        <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
+                                                            <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
+                                                            <input type="file" accept="image/*" onChange={handleEditBannerUpload} className="hidden" />
+                                                        </label>
+                                                    </div>
+                                                    {editingMovie.bannerUrl && (
+                                                        <img src={editingMovie.bannerUrl} alt="Banner preview" className="w-full h-24 object-cover rounded-2xl border border-white/10" />
+                                                    )}
                                                 </div>
                                                 <div className="space-y-2">
                                                     <label className="text-[10px] font-black text-gray-500 uppercase">Rating</label>
@@ -687,6 +849,45 @@ const AdminDashboard: React.FC = () => {
                                 )}
                             </div>
                         )}
+
+                        {currentTab === 'bookings' && (
+                            <div className="space-y-8">
+                                <div className="grid grid-cols-1 gap-4">
+                                    {bookings.map(booking => (
+                                        <div key={booking.id} className="glass-card p-6 rounded-[32px] hover:border-blue-500/30 transition-all flex items-center justify-between group">
+                                            <div className="flex items-center gap-6">
+                                                <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 font-black text-xl">
+                                                    #{booking.id}
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-xl font-black mb-1">{booking.showtime?.movie?.title}</h3>
+                                                    <div className="flex items-center gap-4 text-gray-400 text-sm font-bold">
+                                                        <span className="flex items-center gap-2"><MapPin className="w-4 h-4" /> {booking.showtime?.screen?.theater?.name} • {booking.showtime?.screen?.name}</span>
+                                                        <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> {new Date(booking.showtime?.startTime).toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="mt-2 flex items-center gap-4 text-sm">
+                                                        <span className="bg-white/5 px-3 py-1 rounded-lg text-gray-400 font-bold">User: {booking.user?.name} ({booking.user?.email})</span>
+                                                        <span className="bg-green-500/10 text-green-500 px-3 py-1 rounded-lg font-bold">₹{booking.totalAmount}</span>
+                                                        <span className="bg-blue-500/10 text-blue-500 px-3 py-1 rounded-lg font-bold capitalize">{booking.status}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => handleDeleteBooking(booking.id)}
+                                                className="w-12 h-12 rounded-2xl bg-red-900/20 border border-red-900/30 flex items-center justify-center hover:bg-red-600 hover:border-red-500 transition-all opacity-0 group-hover:opacity-100"
+                                            >
+                                                <span className="text-lg">×</span>
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {bookings.length === 0 && (
+                                        <div className="text-center py-20 opacity-30">
+                                            <p className="text-2xl font-black">No bookings found</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </motion.div>
                 </AnimatePresence>
             </main>
@@ -724,14 +925,16 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <button onClick={() => handleGenerateSeats(genScreenId)} className="neon-button w-full">Execute Generation</button>
+                                <button onClick={() => handleGenerateSeats(genScreenId!)} className="neon-button w-full">
+                                    {hasExistingSeats ? 'Update Layout (Overwrite)' : 'Execute Generation'}
+                                </button>
                                 <button onClick={() => setGenScreenId(null)} className="w-full text-gray-600 font-bold hover:text-white transition-colors">Discard Configuration</button>
                             </div>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
-        </div>
+        </div >
     );
 };
 

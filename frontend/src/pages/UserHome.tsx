@@ -11,6 +11,7 @@ interface Movie {
     genre: string;
     duration: number;
     posterUrl: string;
+    bannerUrl?: string;
     rating: string;
 }
 
@@ -71,7 +72,7 @@ const UserHome: React.FC = () => {
             <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full -mr-48 -mt-48 pointer-events-none"></div>
 
             {/* Header */}
-            <header className="px-8 pt-8 pb-4 flex justify-between items-center sticky top-0 z-30 backdrop-blur-md bg-[#0a0a0b]/80 border-b border-white/5">
+            <header className="px-8 pt-4 pb-4 flex justify-between items-center sticky top-0 z-30 backdrop-blur-md bg-[#0a0a0b]/80 border-b border-white/5">
                 <div>
                     <h1 className="text-3xl font-black tracking-tight text-white"><span className="text-blue-500">Cine</span>Pass</h1>
                 </div>
@@ -87,7 +88,7 @@ const UserHome: React.FC = () => {
             <main className="space-y-10">
                 {/* Hero Carousel */}
                 {currentHero && (
-                    <div className="relative h-[55vh] w-full group overflow-hidden">
+                    <div className="relative h-[85vh] w-full group overflow-hidden">
                         <AnimatePresence mode='wait'>
                             <motion.div
                                 key={currentHero.id}
@@ -99,14 +100,14 @@ const UserHome: React.FC = () => {
                             >
                                 {/* Blurred Background Layer */}
                                 <img
-                                    src={currentHero.posterUrl}
+                                    src={currentHero.bannerUrl || currentHero.posterUrl}
                                     className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-30 scale-110"
                                     alt=""
                                 />
                                 {/* Main Focused Image */}
                                 <img
-                                    src={currentHero.posterUrl}
-                                    className="relative w-full h-full object-contain md:object-cover md:object-[center_20%] opacity-80"
+                                    src={currentHero.bannerUrl || currentHero.posterUrl}
+                                    className="relative w-full h-full object-cover object-center opacity-80"
                                     alt={currentHero.title}
                                 />
                             </motion.div>

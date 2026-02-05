@@ -41,7 +41,7 @@ const Profile: React.FC = () => {
                     </div>
                     <div className="flex gap-3">
                         <span className="px-4 py-1.5 bg-white/5 border border-white/10 rounded-full text-[10px] font-black uppercase tracking-widest text-blue-500">
-                            {auth?.user?.role === 'admin' ? 'Administrator' : 'Premium Member'}
+                            {auth?.user?.role === 'admin' ? 'Administrator' : 'Member'}
                         </span>
                     </div>
                 </div>

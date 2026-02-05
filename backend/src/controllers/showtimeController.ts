@@ -17,34 +17,24 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
         const newStart = new Date(startTime);
         const newEnd = new Date(endTime);
 
-        // Check for overlaps - a showtime overlaps if:
-        // - It starts before the new one ends AND
-        // - It ends after the new one starts
+        // Check if start time is in the past
+        if (newStart < new Date()) {
+            res.status(400).json({ message: 'Cannot schedule showtime in the past.' });
+            return;
+        }
+
+        if (newEnd <= newStart) {
+            res.status(400).json({ message: 'End time must be after start time.' });
+            return;
+        }
+
+        // Check for overlaps using the standard formula: (StartA < EndB) && (EndA > StartB)
         const conflictingShowtime = await Showtime.findOne({
             where: {
-                screenId,
-                [Op.or]: [
-                    // New showtime starts during existing showtime
-                    {
-                        [Op.and]: [
-                            { startTime: { [Op.lte]: newStart } },
-                            { endTime: { [Op.gt]: newStart } }
-                        ]
-                    },
-                    // New showtime ends during existing showtime
-                    {
-                        [Op.and]: [
-                            { startTime: { [Op.lt]: newEnd } },
-                            { endTime: { [Op.gte]: newEnd } }
-                        ]
-                    },
-                    // New showtime completely contains existing showtime
-                    {
-                        [Op.and]: [
-                            { startTime: { [Op.gte]: newStart } },
-                            { endTime: { [Op.lte]: newEnd } }
-                        ]
-                    }
+                screenId: parseInt(String(screenId)), // Ensure integer comparison
+                [Op.and]: [
+                    { startTime: { [Op.lt]: newEnd } },
+                    { endTime: { [Op.gt]: newStart } }
                 ]
             },
             include: [Movie]
@@ -92,8 +82,12 @@ export const getShowtimesByMovie = async (req: Request, res: Response): Promise<
     try {
         const { movieId } = req.params;
         const showtimes = await Showtime.findAll({
-            where: { movieId },
+            where: {
+                movieId,
+                startTime: { [Op.gte]: new Date() } // Only show future showtimes
+            },
             include: [Screen],
+            order: [['startTime', 'ASC']]
         });
         res.json(showtimes);
     } catch (error) {
@@ -151,36 +145,28 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
 
         // Check for overlaps if time or screen changed
         if (startTime || endTime || screenId) {
-            const targetScreenId = screenId || showtime.screenId;
-            const targetStart = new Date(startTime || showtime.startTime);
-            const targetEnd = new Date(endTime || showtime.endTime);
+            const targetScreenId = screenId ? parseInt(String(screenId)) : showtime.screenId;
+            const targetStart = startTime ? new Date(startTime) : new Date(showtime.startTime);
+            const targetEnd = endTime ? new Date(endTime) : new Date(showtime.endTime);
+
+            // Check if start time is in the past
+            if (targetStart < new Date()) {
+                res.status(400).json({ message: 'Cannot reschedule showtime to the past.' });
+                return;
+            }
+
+            if (targetEnd <= targetStart) {
+                res.status(400).json({ message: 'End time must be after start time.' });
+                return;
+            }
 
             const conflictingShowtime = await Showtime.findOne({
                 where: {
                     screenId: targetScreenId,
                     id: { [Op.ne]: id }, // Exclude self
-                    [Op.or]: [
-                        // Updated showtime starts during existing showtime
-                        {
-                            [Op.and]: [
-                                { startTime: { [Op.lte]: targetStart } },
-                                { endTime: { [Op.gt]: targetStart } }
-                            ]
-                        },
-                        // Updated showtime ends during existing showtime
-                        {
-                            [Op.and]: [
-                                { startTime: { [Op.lt]: targetEnd } },
-                                { endTime: { [Op.gte]: targetEnd } }
-                            ]
-                        },
-                        // Updated showtime completely contains existing showtime
-                        {
-                            [Op.and]: [
-                                { startTime: { [Op.gte]: targetStart } },
-                                { endTime: { [Op.lte]: targetEnd } }
-                            ]
-                        }
+                    [Op.and]: [
+                        { startTime: { [Op.lt]: targetEnd } },
+                        { endTime: { [Op.gt]: targetStart } }
                     ]
                 },
                 include: [Movie]
@@ -212,6 +198,10 @@ export const deleteShowtime = async (req: Request, res: Response): Promise<void>
             res.status(404).json({ message: 'Showtime not found' });
             return;
         }
+
+        // Manual cascade delete: delete associated tickets and bookings
+        await Ticket.destroy({ where: { showtimeId: id } });
+        await Booking.destroy({ where: { showtimeId: id } });
 
         await showtime.destroy();
         res.json({ message: 'Showtime deleted successfully' });
