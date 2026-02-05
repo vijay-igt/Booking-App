@@ -51,7 +51,12 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
                 new: { start: newStart, end: newEnd }
             });
             res.status(400).json({
-                message: `Showtime conflicts with "${conflictMovie?.title}" scheduled from ${new Date(conflictingShowtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })} to ${new Date(conflictingShowtime.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })} (UTC) on this screen.`
+                message: `Showtime conflicts with "${conflictMovie?.title}" scheduled from ${new Date(conflictingShowtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })} to ${new Date(conflictingShowtime.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })} (UTC) on this screen.`,
+                conflict: {
+                    movieTitle: conflictMovie?.title,
+                    startTime: conflictingShowtime.startTime,
+                    endTime: conflictingShowtime.endTime
+                }
             });
             return;
         }

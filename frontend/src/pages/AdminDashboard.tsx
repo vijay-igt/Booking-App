@@ -239,7 +239,15 @@ const AdminDashboard: React.FC = () => {
             alert('Showtime updated!');
         } catch (error: any) {
             console.error(error);
-            alert(error.response?.data?.message || 'Update failed');
+            const data = error.response?.data;
+            if (data?.conflict) {
+                const { movieTitle, startTime, endTime } = data.conflict;
+                const localStart = new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                const localEnd = new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                alert(`Conflict: "${movieTitle}" is already scheduled from ${localStart} to ${localEnd} on this screen.`);
+            } else {
+                alert(data?.message || 'Update failed');
+            }
         }
     };
 
@@ -328,7 +336,15 @@ const AdminDashboard: React.FC = () => {
             fetchShowtimes(); // Refresh the showtimes list
         } catch (error: any) {
             console.error(error);
-            alert('Failed to add showtime: ' + (error.response?.data?.message || error.message));
+            const data = error.response?.data;
+            if (data?.conflict) {
+                const { movieTitle, startTime, endTime } = data.conflict;
+                const localStart = new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                const localEnd = new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                alert(`Conflict: "${movieTitle}" is already scheduled from ${localStart} to ${localEnd} on this screen.`);
+            } else {
+                alert('Failed to add showtime: ' + (data?.message || error.message));
+            }
         }
     };
 
