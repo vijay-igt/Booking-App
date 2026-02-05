@@ -220,6 +220,7 @@ const AdminDashboard: React.FC = () => {
 
             const payload = {
                 ...editingShowtime,
+                startTime: start.toISOString(),
                 endTime: end.toISOString()
             };
 
@@ -293,6 +294,7 @@ const AdminDashboard: React.FC = () => {
 
             const payload = {
                 ...newShowtime,
+                startTime: start.toISOString(),
                 endTime: end.toISOString()
             };
 
