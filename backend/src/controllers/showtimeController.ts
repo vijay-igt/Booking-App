@@ -16,6 +16,14 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
             return;
         }
 
+        // Validate prices prevent negative values
+        for (const [tier, price] of Object.entries(tierPrices)) {
+            if (Number(price) < 0) {
+                res.status(400).json({ message: `Price for tier "${tier}" cannot be negative.` });
+                return;
+            }
+        }
+
         console.log('Creating showtime:', { movieId, screenId, startTime, endTime });
 
         // Convert to Date objects for proper comparison

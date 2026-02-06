@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Home, Ticket, User, Star, Play, Info } from 'lucide-react';
+import { Search, Bell, ChevronRight, Clock, Sparkles, User, LogIn } from 'lucide-react';
+import BottomNav from '../components/BottomNav';
+import { AuthContext } from '../context/AuthContext';
 
 interface Movie {
     id: number;
@@ -15,15 +17,16 @@ interface Movie {
     rating: string;
 }
 
-const CATEGORIES = ["All", "Action", "Sci-Fi", "Romance", "Thriller", "Drama"];
+const CATEGORIES = ["All", "Action", "Comedy", "Sci-Fi", "Romance", "Thriller", "Drama"];
 
 const UserHome: React.FC = () => {
     const [movies, setMovies] = useState<Movie[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState("All");
-    const [heroIndex, setHeroIndex] = useState(0);
+    const [featuredIndex, setFeaturedIndex] = useState(0);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
+    const auth = useContext(AuthContext);
 
     useEffect(() => {
         const fetchMovies = async () => {
@@ -39,12 +42,11 @@ const UserHome: React.FC = () => {
         fetchMovies();
     }, []);
 
-    // Auto-rotate hero carousel
     useEffect(() => {
         if (movies.length > 0) {
             const interval = setInterval(() => {
-                setHeroIndex((prev) => (prev + 1) % Math.min(movies.length, 5));
-            }, 5000);
+                setFeaturedIndex((prev) => (prev + 1) % Math.min(movies.length, 3));
+            }, 6000);
             return () => clearInterval(interval);
         }
     }, [movies]);
@@ -54,222 +56,264 @@ const UserHome: React.FC = () => {
         m.title.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const heroMovies = movies.slice(0, 5);
-    const currentHero = heroMovies[heroIndex];
+    const featuredMovies = movies.slice(0, 3);
+    const currentFeatured = featuredMovies[featuredIndex];
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+                <div className="relative w-16 h-16">
+                    <div className="absolute inset-0 rounded-full border-4 border-emerald-500/20"></div>
+                    <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-500 animate-spin"></div>
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="relative min-h-screen bg-[#0a0a0b] text-white pb-32 overflow-x-hidden">
-            {/* Background Glows */}
-            <div className="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-blue-900/10 to-[#0a0a0b] pointer-events-none"></div>
-            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full -mr-48 -mt-48 pointer-events-none"></div>
+        <div className="min-h-screen bg-neutral-950 text-white pb-24">
+            {/* Status Bar Spacer */}
+            <div className="h-safe-top bg-neutral-950"></div>
 
             {/* Header */}
-            <header className="px-8 pt-4 pb-4 flex justify-between items-center sticky top-0 z-30 backdrop-blur-md bg-[#0a0a0b]/80 border-b border-white/5">
-                <div>
-                    <h1 className="text-3xl font-black tracking-tight text-white"><span className="text-blue-500">Cine</span>Pass</h1>
+            <header className="px-5 pt-4 pb-3">
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <motion.p
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-neutral-500 text-sm font-medium mb-0.5"
+                        >
+                            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}
+                        </motion.p>
+                        <motion.h1
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                            className="text-2xl font-bold"
+                        >
+                            Book Your Show
+                        </motion.h1>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {auth?.user ? (
+                            <motion.button
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => navigate('/profile')}
+                                className="flex items-center gap-3 bg-neutral-900 border border-neutral-800 rounded-full pl-1 pr-4 py-1"
+                            >
+                                <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+                                    <User className="w-5 h-5" />
+                                </div>
+                                <div className="text-left hidden sm:block">
+                                    <p className="text-xs text-neutral-400 font-medium leading-none mb-0.5">Hello,</p>
+                                    <p className="text-sm font-bold text-white leading-none">{auth.user.name}</p>
+                                </div>
+                            </motion.button>
+                        ) : (
+                            <motion.button
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => navigate('/login')}
+                                className="flex items-center gap-2 px-4 py-2 bg-emerald-500 rounded-full text-white font-semibold text-sm shadow-lg shadow-emerald-500/20"
+                            >
+                                <LogIn className="w-4 h-4" />
+                                <span>Sign In</span>
+                            </motion.button>
+                        )}
+
+                        <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            className="relative w-11 h-11 rounded-full bg-neutral-900 flex items-center justify-center border border-neutral-800"
+                        >
+                            <Bell className="w-5 h-5 text-neutral-400" />
+                            <span className="absolute top-2 right-2 w-2 h-2 bg-emerald-500 rounded-full"></span>
+                        </motion.button>
+                    </div>
                 </div>
+
+                {/* Search Bar */}
                 <motion.div
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => navigate('/profile')}
-                    className="w-12 h-12 rounded-full glass-card flex items-center justify-center text-blue-500 cursor-pointer hover:bg-white/10 transition-colors"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="relative z-50"
                 >
-                    <User className="w-5 h-5" />
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
+                    <input
+                        type="text"
+                        placeholder="Search movies..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full h-12 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                    />
+
+                    {/* Search Suggestions Dropdown */}
+                    <AnimatePresence>
+                        {searchQuery.length > 0 && filteredMovies.length > 0 && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                className="absolute top-full left-0 right-0 mt-2 bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-xl"
+                            >
+                                {filteredMovies.slice(0, 5).map((movie) => (
+                                    <button
+                                        key={movie.id}
+                                        onClick={() => navigate(`/movie/${movie.id}`)}
+                                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-neutral-800 transition-colors text-left"
+                                    >
+                                        <img
+                                            src={movie.posterUrl}
+                                            alt={movie.title}
+                                            className="w-8 h-10 object-cover rounded"
+                                        />
+                                        <div>
+                                            <p className="font-semibold text-sm text-white">{movie.title}</p>
+                                            <p className="text-xs text-neutral-500">{movie.genre} • {movie.rating}</p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </motion.div>
             </header>
 
-            <main className="space-y-10">
-                {/* Hero Carousel */}
-                {currentHero && (
-                    <div className="relative h-[85vh] w-full group overflow-hidden">
-                        <AnimatePresence mode='wait'>
+            {/* Featured Section */}
+            {currentFeatured && (
+                <section className="px-5 mb-8">
+                    <div className="relative h-[280px] rounded-3xl overflow-hidden">
+                        <AnimatePresence mode="wait">
                             <motion.div
-                                key={currentHero.id}
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.7 }}
-                                className="absolute inset-0 w-full h-full"
+                                key={currentFeatured.id}
+                                initial={{ opacity: 0, scale: 1.1 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                transition={{ duration: 0.6 }}
+                                className="absolute inset-0"
                             >
-                                {/* Blurred Background Layer */}
                                 <img
-                                    src={currentHero.bannerUrl || currentHero.posterUrl}
-                                    className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-30 scale-110"
-                                    alt=""
+                                    src={currentFeatured.bannerUrl || currentFeatured.posterUrl}
+                                    alt={currentFeatured.title}
+                                    className="w-full h-full object-cover object-top"
                                 />
-                                {/* Main Focused Image */}
-                                <img
-                                    src={currentHero.bannerUrl || currentHero.posterUrl}
-                                    className="relative w-full h-full object-cover object-center opacity-80"
-                                    alt={currentHero.title}
-                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
                             </motion.div>
                         </AnimatePresence>
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent"></div>
 
-                        <div className="absolute bottom-0 left-0 w-full p-8 z-10">
+                        <div className="absolute inset-0 p-5 flex flex-col justify-end">
                             <motion.div
-                                key={`text-${currentHero.id}`}
-                                initial={{ y: 20, opacity: 0 }}
-                                animate={{ y: 0, opacity: 1 }}
-                                transition={{ delay: 0.2 }}
+                                key={`content-${currentFeatured.id}`}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.3 }}
                             >
-                                <span className="px-3 py-1 bg-blue-600 text-[10px] font-black uppercase tracking-widest rounded-lg mb-3 inline-block">
-                                    Featured Premiere
-                                </span>
-                                <h2 className="text-5xl font-black tracking-tighter leading-none mb-3 line-clamp-2 text-white">
-                                    {currentHero.title}
-                                </h2>
-                                <div className="flex items-center gap-4 text-xs font-bold text-gray-300 mb-6">
-                                    <span className="flex items-center gap-1 text-yellow-500"><Star className="w-3 h-3 fill-yellow-500" /> {currentHero.rating}</span>
-                                    <span>•</span>
-                                    <span>{currentHero.genre}</span>
-                                    <span>•</span>
-                                    <span>{currentHero.duration}m</span>
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 mb-2">
+                                    <Sparkles className="w-3 h-3 text-emerald-400" />
+                                    <span className="text-xs font-semibold text-emerald-400">Featured</span>
                                 </div>
-                                <div className="flex gap-4">
-                                    <button
-                                        onClick={() => navigate(`/movie/${currentHero.id}`)}
-                                        className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-blue-500 transition-colors flex items-center gap-2 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
-                                    >
-                                        <Ticket className="w-4 h-4" /> Book Now
-                                    </button>
-                                    <button
-                                        onClick={() => navigate(`/movie/${currentHero.id}`)}
-                                        className="glass-card px-6 py-3 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-white/10 transition-colors flex items-center gap-2"
-                                    >
-                                        <Info className="w-4 h-4" /> Details
-                                    </button>
-                                </div>
+                                <h2 className="text-2xl font-bold mb-1.5 line-clamp-1">{currentFeatured.title}</h2>
+                                <p className="text-sm text-neutral-400 mb-3 line-clamp-2">{currentFeatured.description}</p>
+                                <button
+                                    onClick={() => navigate(`/movie/${currentFeatured.id}`)}
+                                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-white text-neutral-950 font-semibold text-sm"
+                                >
+                                    Book Now
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
                             </motion.div>
                         </div>
 
                         {/* Pagination Dots */}
-                        <div className="absolute bottom-8 right-8 flex gap-2 z-20">
-                            {heroMovies.map((_, idx) => (
+                        <div className="absolute top-5 right-5 flex gap-1.5">
+                            {featuredMovies.map((_, idx) => (
                                 <div
                                     key={idx}
-                                    className={`h-1.5 rounded-full transition-all duration-300 ${idx === heroIndex ? 'w-6 bg-blue-500' : 'w-1.5 bg-white/30'}`}
+                                    className={`h-1 rounded-full transition-all duration-300 ${idx === featuredIndex ? 'w-6 bg-white' : 'w-1 bg-white/40'
+                                        }`}
                                 />
                             ))}
                         </div>
                     </div>
-                )}
+                </section>
+            )}
 
-                {/* Search & Categories */}
-                <div className="px-8 space-y-6">
-                    <div className="relative group">
-                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-blue-500 transition-colors" />
-                        <input
-                            type="text"
-                            placeholder="Find your next experience..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="premium-input w-full pl-14 py-4 text-base bg-white/5 border-white/5 focus:bg-white/10"
-                        />
-                    </div>
+            {/* Categories */}
+            <section className="mb-6">
+                <div className="flex gap-2 overflow-x-auto px-5 pb-2 no-scrollbar">
+                    {CATEGORIES.map((cat, idx) => (
+                        <motion.button
+                            key={cat}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            onClick={() => setSelectedCategory(cat)}
+                            className={`px-5 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all ${selectedCategory === cat
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
+                                }`}
+                        >
+                            {cat}
+                        </motion.button>
+                    ))}
+                </div>
+            </section>
 
-                    <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar -mx-8 px-8">
-                        {CATEGORIES.map((cat) => (
-                            <button
-                                key={cat}
-                                onClick={() => setSelectedCategory(cat)}
-                                className={`px-6 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all duration-300 border ${selectedCategory === cat
-                                    ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.3)]'
-                                    : 'bg-transparent text-gray-400 border-white/10 hover:border-white/30 hover:text-white'
-                                    }`}
-                            >
-                                {cat}
-                            </button>
-                        ))}
-                    </div>
+            {/* Movies Grid */}
+            <section className="px-5">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold">Now Showing</h3>
+                    <button className="text-sm text-neutral-400 font-medium">See all</button>
                 </div>
 
-                {/* Movie Grid */}
-                <section className="px-8">
-                    <div className="flex justify-between items-end mb-6">
-                        <h3 className="text-xl font-black tracking-tight text-white">Now Showing</h3>
+                {filteredMovies.length === 0 ? (
+                    <div className="py-16 text-center">
+                        <div className="w-16 h-16 rounded-full bg-neutral-900 flex items-center justify-center mx-auto mb-3">
+                            <Search className="w-8 h-8 text-neutral-700" />
+                        </div>
+                        <p className="text-neutral-500">No movies found</p>
                     </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                        {filteredMovies.map((movie, index) => (
+                            <motion.div
+                                key={movie.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                whileInView={{ opacity: 1, y: 0 }}
+                                viewport={{ once: true }}
+                                transition={{ delay: index * 0.05 }}
+                                onClick={() => navigate(`/movie/${movie.id}`)}
+                                className="group"
+                            >
+                                <div className="relative aspect-[2/3] rounded-2xl overflow-hidden mb-2 bg-neutral-900">
+                                    <img
+                                        src={movie.posterUrl}
+                                        alt={movie.title}
+                                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-neutral-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
 
-                    {filteredMovies.length === 0 ? (
-                        <div className="py-20 text-center glass-card rounded-[32px] border-dashed border-white/5 flex flex-col items-center justify-center text-gray-500 gap-4">
-                            <Search className="w-10 h-10 opacity-20" />
-                            <p className="font-medium">No movies found matching your criteria.</p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-10">
-                            {filteredMovies.map((movie, index) => (
-                                <motion.div
-                                    key={movie.id}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    whileInView={{ opacity: 1, y: 0 }}
-                                    viewport={{ once: true }}
-                                    transition={{ delay: index * 0.05, duration: 0.4 }}
-                                    onClick={() => navigate(`/movie/${movie.id}`)}
-                                    className="group cursor-pointer"
-                                >
-                                    <div className="relative aspect-[2/3] rounded-[32px] overflow-hidden mb-4 shadow-2xl bg-gray-900">
-                                        <img
-                                            src={movie.posterUrl}
-                                            alt={movie.title}
-                                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-90 group-hover:opacity-100"
-                                        />
-                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                                            <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white scale-0 group-hover:scale-100 transition-transform duration-300 delay-100">
-                                                <Play className="w-6 h-6 ml-1 fill-white" />
-                                            </div>
-                                        </div>
-                                        <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10">
-                                            <span className="text-[10px] font-black text-yellow-500 flex items-center gap-1">
-                                                <Star className="w-3 h-3 fill-yellow-500" /> {movie.rating}
-                                            </span>
-                                        </div>
+                                    {/* Rating Badge */}
+                                    <div className="absolute top-2 right-2 px-2 py-1 rounded-lg bg-neutral-950/80 backdrop-blur-sm border border-white/10">
+                                        <span className="text-xs font-bold text-amber-400">★ {movie.rating}</span>
                                     </div>
-                                    <div>
-                                        <h4 className="text-base font-bold text-white leading-tight line-clamp-1 group-hover:text-blue-500 transition-colors">{movie.title}</h4>
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mt-1.5">{movie.genre}</p>
+                                </div>
+                                <h4 className="font-semibold text-sm mb-0.5 line-clamp-1">{movie.title}</h4>
+                                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                    <span>{movie.genre}</span>
+                                    <span>•</span>
+                                    <div className="flex items-center gap-1">
+                                        <Clock className="w-3 h-3" />
+                                        <span>{movie.duration}m</span>
                                     </div>
-                                </motion.div>
-                            ))}
-                        </div>
-                    )}
-                </section>
-            </main>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                )}
+            </section>
 
-            {/* Premium Floating Bottom Nav */}
-            <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 glass-card px-8 py-5 rounded-[40px] border-white/10 flex items-center gap-10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] z-50 backdrop-blur-3xl bg-[#0a0a0b]/60">
-                <motion.div
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => navigate('/')}
-                    className="cursor-pointer text-blue-500 flex flex-col items-center gap-1"
-                >
-                    <Home className="w-6 h-6" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Home</span>
-                </motion.div>
-                <motion.div
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => navigate('/history')}
-                    className="cursor-pointer text-gray-500 hover:text-white transition-colors flex flex-col items-center gap-1"
-                >
-                    <Ticket className="w-6 h-6" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Tickets</span>
-                </motion.div>
-                <motion.div
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => navigate('/profile')}
-                    className="cursor-pointer text-gray-500 hover:text-white transition-colors flex flex-col items-center gap-1"
-                >
-                    <User className="w-6 h-6" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Profile</span>
-                </motion.div>
-            </nav>
+            <BottomNav />
         </div>
     );
 };

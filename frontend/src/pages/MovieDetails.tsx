@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
-import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, Film, Star, Calendar, MapPin, Globe, Mic, Info, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronLeft, Star, Calendar, MapPin, Users } from 'lucide-react';
 
 interface Movie {
     id: number;
@@ -37,18 +37,20 @@ const MovieDetails: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const [movie, setMovie] = useState<Movie | null>(null);
     const [selectedShowtime, setSelectedShowtime] = useState<number | null>(null);
+    const [expandedDay, setExpandedDay] = useState<string | null>(null);
     const navigate = useNavigate();
-    const containerRef = useRef(null);
-
-    const { scrollY } = useScroll();
-    const y = useTransform(scrollY, [0, 500], [0, 150]);
-    const opacity = useTransform(scrollY, [0, 400], [1, 0]);
 
     useEffect(() => {
         const fetchMovie = async () => {
             try {
                 const response = await api.get(`/movies/${id}`);
                 setMovie(response.data);
+
+                // Auto-expand today's showtimes
+                if (response.data.showtimes?.length > 0) {
+                    const today = new Date().toLocaleDateString();
+                    setExpandedDay(today);
+                }
             } catch (error) {
                 console.error('Error fetching movie details:', error);
             }
@@ -57,14 +59,17 @@ const MovieDetails: React.FC = () => {
     }, [id]);
 
     if (!movie) return (
-        <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
-            <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+        <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+            <div className="relative w-16 h-16">
+                <div className="absolute inset-0 rounded-full border-4 border-emerald-500/20"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-500 animate-spin"></div>
+            </div>
         </div>
     );
 
     const formatTime = (dateStr: string) => {
         const date = new Date(dateStr);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
     };
 
     const formatDate = (dateStr: string) => {
@@ -72,167 +77,196 @@ const MovieDetails: React.FC = () => {
         return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     };
 
+    const groupShowtimesByDate = () => {
+        if (!movie.showtimes) return {};
+
+        return movie.showtimes.reduce((acc, showtime) => {
+            const dateKey = formatDate(showtime.startTime);
+            if (!acc[dateKey]) acc[dateKey] = [];
+            acc[dateKey].push(showtime);
+            return acc;
+        }, {} as Record<string, Showtime[]>);
+    };
+
+    const groupedShowtimes = groupShowtimesByDate();
+
     return (
-        <div className="bg-[#0a0a0b] min-h-screen text-white pb-40" ref={containerRef}>
-            {/* Parallax Hero */}
-            <div className="relative h-[100vh] w-full overflow-hidden">
-                <motion.div style={{ y, opacity }} className="absolute inset-0 w-full h-full">
+        <div className="min-h-screen bg-neutral-950 text-white pb-32">
+            {/* Header with backdrop */}
+            <div className="relative h-[45vh]">
+                <div className="absolute inset-0">
                     <img
                         src={movie.bannerUrl || movie.posterUrl}
                         alt={movie.title}
-                        className="w-full h-full object-cover object-center"
+                        className="w-full h-full object-cover object-top"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent"></div>
-                </motion.div>
-
-                {/* Back Button */}
-                <div className="absolute top-8 left-8 z-30">
-                    <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => navigate(-1)}
-                        className="w-12 h-12 glass-card rounded-full flex items-center justify-center hover:bg-white/10 transition-colors border border-white/20 backdrop-blur-md"
-                    >
-                        <ChevronLeft className="w-6 h-6 text-white" />
-                    </motion.button>
+                    <div className="absolute inset-0 bg-gradient-to-b from-neutral-950/60 via-neutral-950/80 to-neutral-950"></div>
                 </div>
 
-                {/* Hero Content */}
-                <div className="absolute bottom-0 left-0 w-full p-8 z-20 bg-gradient-to-t from-[#0a0a0b] to-transparent pt-32">
-                    <div className="max-w-4xl mx-auto">
-                        <motion.div
-                            initial={{ y: 50, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            transition={{ duration: 0.6 }}
-                            className="space-y-6"
-                        >
-                            <div className="flex flex-wrap items-center gap-4">
-                                <span className="px-3 py-1 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-[0_0_15px_rgba(37,99,235,0.5)]">
-                                    Now Showing
-                                </span>
-                                <div className="flex items-center gap-1 text-yellow-500 bg-yellow-500/10 px-3 py-1 rounded-lg border border-yellow-500/20">
-                                    <Star className="w-3 h-3 fill-yellow-500" />
-                                    <span className="text-xs font-black">{movie.rating}</span>
-                                </div>
-                                <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">{movie.duration} min</span>
-                                <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">{movie.genre}</span>
-                            </div>
+                {/* Back button */}
+                <motion.button
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => navigate(-1)}
+                    className="absolute top-12 left-5 z-10 w-10 h-10 rounded-full bg-neutral-950/60 backdrop-blur-md border border-white/10 flex items-center justify-center"
+                >
+                    <ChevronLeft className="w-5 h-5" />
+                </motion.button>
 
-                            <h1 className="text-5xl md:text-7xl font-black tracking-tighter leading-none text-white drop-shadow-2xl">
-                                {movie.title}
-                            </h1>
-
-                            <div className="flex gap-6 pt-4">
-                                <div className="flex items-start gap-3 glass-card p-4 rounded-2xl max-w-sm border-white/10 bg-white/5">
-                                    <Info className="w-5 h-5 text-blue-500 mt-1 shrink-0" />
-                                    <p className="text-sm text-gray-300 leading-relaxed font-medium line-clamp-3">
-                                        {movie.description}
-                                    </p>
+                {/* Movie info overlay */}
+                <div className="absolute bottom-0 left-0 right-0 p-5">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                    >
+                        <div className="flex items-center gap-2 mb-2">
+                            <div className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/30">
+                                <div className="flex items-center gap-1">
+                                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                                    <span className="text-sm font-bold text-amber-400">{movie.rating}</span>
                                 </div>
                             </div>
-                        </motion.div>
-                    </div>
+                            <span className="text-xs font-medium text-neutral-400">{movie.genre}</span>
+                            <span className="text-neutral-600">•</span>
+                            <span className="text-xs font-medium text-neutral-400">{movie.duration} min</span>
+                        </div>
+                        <h1 className="text-3xl font-bold mb-3">{movie.title}</h1>
+                    </motion.div>
                 </div>
             </div>
 
-            {/* Content Section */}
-            <div className="max-w-4xl mx-auto px-8 py-12 space-y-16">
+            {/* Content */}
+            <div className="px-5 space-y-6 mt-6">
+                {/* Description */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                >
+                    <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-wide mb-2">Synopsis</h3>
+                    <p className="text-neutral-300 leading-relaxed">{movie.description}</p>
+                </motion.div>
 
-                {/* Tech Specs */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Info Cards */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4 }}
+                    className="grid grid-cols-2 gap-3"
+                >
                     {[
-                        { icon: Globe, label: "Language", value: movie.language || "English" },
-                        { icon: Mic, label: "Audio", value: movie.audio || "Dolby Atmos" },
-                        { icon: Film, label: "Format", value: movie.format || "IMAX 2D" },
-                        { icon: Calendar, label: "Release", value: movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : "2024" }
+                        { label: 'Language', value: movie.language || 'English', icon: '🌐' },
+                        { label: 'Audio', value: movie.audio || 'Dolby Atmos', icon: '🔊' },
+                        { label: 'Format', value: movie.format || '2D', icon: '🎬' },
+                        { label: 'Release', value: movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : '—', icon: '📅' }
                     ].map((item, idx) => (
-                        <div key={idx} className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center gap-2 text-center group hover:bg-white/5 transition-colors">
-                            <item.icon className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-transform" />
-                            <p className="text-[10px] uppercase font-black text-gray-500 tracking-widest">{item.label}</p>
-                            <p className="text-sm font-bold text-white">{item.value}</p>
+                        <div
+                            key={idx}
+                            className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800"
+                        >
+                            <p className="text-2xl mb-1">{item.icon}</p>
+                            <p className="text-xs text-neutral-500 font-medium mb-0.5">{item.label}</p>
+                            <p className="text-sm font-semibold">{item.value}</p>
                         </div>
                     ))}
-                </div>
+                </motion.div>
 
                 {/* Showtimes */}
-                <div id="showtimes">
-                    <h3 className="text-2xl font-black tracking-tight mb-8 flex items-center gap-3">
-                        <Calendar className="w-6 h-6 text-blue-500" />
-                        Select Showtime
-                    </h3>
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                >
+                    <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-wide mb-3">Select Showtime</h3>
 
-                    {movie.showtimes && movie.showtimes.length > 0 ? (
-                        <div className="space-y-4">
-                            {movie.showtimes.map((st, index) => (
-                                <motion.div
-                                    key={st.id}
-                                    initial={{ opacity: 0, x: -20 }}
-                                    whileInView={{ opacity: 1, x: 0 }}
-                                    viewport={{ once: true }}
-                                    transition={{ delay: index * 0.1 }}
-                                    onClick={() => setSelectedShowtime(st.id)}
-                                    className={`glass-card p-6 rounded-3xl border transition-all cursor-pointer group flex justify-between items-center ${selectedShowtime === st.id
-                                        ? 'border-blue-500 bg-blue-600/10 shadow-[0_0_30px_rgba(37,99,235,0.2)]'
-                                        : 'border-white/5 hover:border-white/20'
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-6">
-                                        <div className={`w-16 h-16 rounded-2xl flex flex-col items-center justify-center border transition-colors ${selectedShowtime === st.id ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400'
-                                            }`}>
-                                            <span className="text-xs font-black uppercase">{formatTime(st.startTime).split(' ')[1]}</span>
-                                            <span className="text-lg font-black">{formatTime(st.startTime).split(' ')[0]}</span>
-                                        </div>
-                                        <div>
-                                            <h4 className="text-lg font-bold text-white">{st.screen.theater.name}</h4>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <MapPin className="w-3 h-3 text-gray-500" />
-                                                <p className="text-xs text-gray-500 font-medium">{st.screen.name} • {formatDate(st.startTime)}</p>
+                    {Object.keys(groupedShowtimes).length > 0 ? (
+                        <div className="space-y-3">
+                            {Object.entries(groupedShowtimes).map(([date, showtimes]) => (
+                                <div key={date} className="rounded-2xl bg-neutral-900 border border-neutral-800 overflow-hidden">
+                                    <button
+                                        onClick={() => setExpandedDay(expandedDay === date ? null : date)}
+                                        className="w-full p-4 flex items-center justify-between"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-xl bg-neutral-800 flex items-center justify-center">
+                                                <Calendar className="w-5 h-5 text-emerald-400" />
+                                            </div>
+                                            <div className="text-left">
+                                                <p className="font-semibold">{date}</p>
+                                                <p className="text-xs text-neutral-500">{showtimes.length} shows available</p>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="font-black text-xs text-blue-500 uppercase tracking-widest">Tiered</p>
-                                        <p className="text-[8px] font-black uppercase opacity-50 tracking-widest">Pricing</p>
-                                    </div>
-                                </motion.div>
+                                        <motion.div
+                                            animate={{ rotate: expandedDay === date ? 180 : 0 }}
+                                            transition={{ duration: 0.2 }}
+                                        >
+                                            <ChevronLeft className="w-5 h-5 text-neutral-500 -rotate-90" />
+                                        </motion.div>
+                                    </button>
+
+                                    <AnimatePresence>
+                                        {expandedDay === date && (
+                                            <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.2 }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="px-4 pb-4 space-y-2 border-t border-neutral-800 pt-4">
+                                                    {showtimes.map(showtime => (
+                                                        <button
+                                                            key={showtime.id}
+                                                            onClick={() => setSelectedShowtime(showtime.id)}
+                                                            className={`w-full p-3 rounded-xl text-left transition-all ${selectedShowtime === showtime.id
+                                                                ? 'bg-emerald-500 text-white'
+                                                                : 'bg-neutral-800 hover:bg-neutral-750'
+                                                                }`}
+                                                        >
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="font-semibold">{formatTime(showtime.startTime)}</span>
+                                                                <span className="text-sm font-bold">₹{showtime.price}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 text-xs opacity-80">
+                                                                <MapPin className="w-3 h-3" />
+                                                                <span>{showtime.screen.theater.name} • {showtime.screen.name}</span>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
                             ))}
                         </div>
                     ) : (
-                        <div className="py-20 text-center glass-card rounded-3xl border-dashed border-white/10">
-                            <p className="text-gray-500 font-medium">No showtimes available presently.</p>
+                        <div className="py-12 text-center rounded-2xl bg-neutral-900 border border-dashed border-neutral-800">
+                            <Calendar className="w-12 h-12 text-neutral-700 mx-auto mb-3" />
+                            <p className="text-neutral-500">No showtimes available</p>
                         </div>
                     )}
-                </div>
+                </motion.div>
             </div>
 
-            {/* Sticky Booking Bar */}
+            {/* Fixed bottom CTA */}
             <AnimatePresence>
                 {selectedShowtime && (
                     <motion.div
                         initial={{ y: 100 }}
                         animate={{ y: 0 }}
                         exit={{ y: 100 }}
-                        className="fixed bottom-0 left-0 w-full p-6 z-40 bg-[#0a0a0b]/80 backdrop-blur-xl border-t border-white/10"
+                        className="fixed bottom-0 left-0 right-0 p-5 bg-neutral-950/95 backdrop-blur-xl border-t border-neutral-800"
                     >
-                        <div className="max-w-4xl mx-auto flex items-center justify-between">
-                            <div className="hidden md:block">
-                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Total Selection</p>
-                                <p className="text-white text-lg font-black">1 Showtime Selected</p>
-                            </div>
-                            <div className="flex items-center gap-4 w-full md:w-auto">
-                                <button
-                                    onClick={() => setSelectedShowtime(null)}
-                                    className="p-4 rounded-2xl glass-card hover:bg-white/10 transition-colors md:hidden"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                                <button
-                                    onClick={() => navigate(`/booking/${selectedShowtime}`)}
-                                    className="flex-1 md:flex-none neon-button py-4 px-12 text-sm uppercase tracking-widest flex items-center justify-center gap-3"
-                                >
-                                    Proceed to Seats <ChevronLeft className="w-4 h-4 rotate-180" />
-                                </button>
-                            </div>
-                        </div>
+                        <button
+                            onClick={() => navigate(`/booking/${selectedShowtime}`)}
+                            className="w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold flex items-center justify-center gap-2"
+                        >
+                            <Users className="w-5 h-5" />
+                            Select Seats
+                        </button>
                     </motion.div>
                 )}
             </AnimatePresence>

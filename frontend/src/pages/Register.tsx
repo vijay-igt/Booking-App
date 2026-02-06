@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Mail, Lock, User, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, AlertCircle, ArrowRight, Check } from 'lucide-react';
 
 const Register: React.FC = () => {
     const [name, setName] = useState('');
@@ -27,109 +27,142 @@ const Register: React.FC = () => {
     };
 
     return (
-        <div className="relative flex items-center justify-center min-h-screen bg-[#0a0a0b] overflow-hidden">
-            <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full"></div>
-            <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full"></div>
+        <div className="min-h-screen bg-neutral-950 text-white flex flex-col">
+            {/* Background decoration */}
+            <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl"></div>
 
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className="relative z-10 w-full max-w-[420px] px-6"
-            >
-                <div className="text-center mb-10">
-                    <motion.div
-                        initial={{ scale: 0.5 }}
-                        animate={{ scale: 1 }}
-                        className="inline-flex items-center justify-center w-16 h-16 bg-blue-600/10 rounded-[28px] border border-blue-500/20 mb-6"
-                    >
-                        <UserPlus className="w-8 h-8 text-blue-500" />
-                    </motion.div>
-                    <h1 className="text-4xl font-black text-white tracking-tight mb-2">Join the Club</h1>
-                    <p className="text-gray-500 font-medium">Start your cinematic journey</p>
-                </div>
+            <div className="flex-1 flex items-center justify-center px-5 py-12 relative z-10">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="w-full max-w-md"
+                >
+                    {/* Logo */}
+                    <div className="text-center mb-12">
+                        <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ delay: 0.2, type: 'spring' }}
+                            className="w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20"
+                        >
+                            <span className="text-2xl font-black text-white">C</span>
+                        </motion.div>
+                        <h1 className="text-3xl font-bold mb-2">Create account</h1>
+                        <p className="text-neutral-500">Join us and start booking movies</p>
+                    </div>
 
-                <div className="glass-card p-10 rounded-[40px]">
-                    <AnimatePresence mode="wait">
+                    {/* Error Alert */}
+                    <AnimatePresence>
                         {error && (
                             <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-500 text-sm font-bold"
+                                initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                                animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
+                                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                                className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-start gap-3 overflow-hidden"
                             >
-                                <AlertCircle className="w-4 h-4 shrink-0" />
-                                {error}
+                                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                                <p className="text-sm text-red-500 font-medium">{error}</p>
                             </motion.div>
                         )}
                     </AnimatePresence>
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <div className="space-y-2">
-                            <label className="text-[11px] font-black text-gray-500 uppercase tracking-widest ml-1">Full Name</label>
+                    {/* Form */}
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-neutral-400 mb-2">Full Name</label>
                             <div className="relative">
-                                <User className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                                 <input
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
                                     placeholder="John Doe"
-                                    className="premium-input w-full pl-12"
+                                    className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
                                     required
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-2">
-                            <label className="text-[11px] font-black text-gray-500 uppercase tracking-widest ml-1">Email Address</label>
+                        <div>
+                            <label className="block text-sm font-medium text-neutral-400 mb-2">Email</label>
                             <div className="relative">
-                                <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                                 <input
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="name@example.com"
-                                    className="premium-input w-full pl-12"
+                                    placeholder="you@example.com"
+                                    className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
                                     required
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-2">
-                            <label className="text-[11px] font-black text-gray-500 uppercase tracking-widest ml-1">Password</label>
+                        <div>
+                            <label className="block text-sm font-medium text-neutral-400 mb-2">Password</label>
                             <div className="relative">
-                                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                                 <input
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="••••••••"
-                                    className="premium-input w-full pl-12"
+                                    placeholder="Create a strong password"
+                                    className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
                                     required
                                 />
                             </div>
+
+                            {/* Password strength indicator */}
+                            {password.length > 0 && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    className="mt-2 space-y-2"
+                                >
+                                    <div className="flex gap-1">
+                                        <div className={`h-1 flex-1 rounded-full ${password.length >= 6 ? 'bg-emerald-500' : 'bg-neutral-800'}`}></div>
+                                        <div className={`h-1 flex-1 rounded-full ${password.length >= 8 ? 'bg-emerald-500' : 'bg-neutral-800'}`}></div>
+                                        <div className={`h-1 flex-1 rounded-full ${password.length >= 10 ? 'bg-emerald-500' : 'bg-neutral-800'}`}></div>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs">
+                                        {password.length >= 8 ? (
+                                            <>
+                                                <Check className="w-3 h-3 text-emerald-500" />
+                                                <span className="text-emerald-500">Strong password</span>
+                                            </>
+                                        ) : (
+                                            <span className="text-neutral-500">Use at least 8 characters</span>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            )}
                         </div>
 
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="neon-button w-full flex items-center justify-center gap-3"
+                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
                         >
                             {isLoading ? (
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
-                                "Create Account"
+                                <>
+                                    Create Account
+                                    <ArrowRight className="w-5 h-5" />
+                                </>
                             )}
                         </button>
                     </form>
 
-                    <div className="mt-8 text-center">
-                        <p className="text-gray-500 text-xs font-bold capitalize">
-                            Have an account? <Link to="/login" className="text-blue-500 hover:text-blue-400 transition-colors ml-1">Sign In</Link>
-                        </p>
-                    </div>
-                </div>
-            </motion.div>
+                    {/* Footer */}
+                    <p className="text-center text-sm text-neutral-500 mt-8">
+                        Already have an account?{' '}
+                        <Link to="/login" className="text-emerald-400 font-semibold">
+                            Sign in
+                        </Link>
+                    </p>
+                </motion.div>
+            </div>
         </div>
     );
 };

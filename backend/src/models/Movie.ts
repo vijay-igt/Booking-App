@@ -27,7 +27,7 @@ export class Movie extends Model {
     declare duration: number; // in minutes
 
     @Column(DataType.STRING)
-    declare rating: string; // e.g., 'PG-13'
+    declare rating: string; // e.g., '8.5'
 
     @Column(DataType.TEXT)
     declare posterUrl: string;

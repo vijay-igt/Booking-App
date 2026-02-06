@@ -8,12 +8,14 @@ import {
     Plus,
     MapPin,
     Clock,
-    IndianRupee,
     LogOut,
-    Search,
-    Upload,
-    ExternalLink,
-    Ticket as TicketIcon
+    Ticket as TicketIcon,
+    ChevronLeft,
+    Edit2,
+    Trash2,
+    Monitor,
+    X,
+    Star
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -45,8 +47,6 @@ interface Movie {
     audio: string;
     format: string;
 }
-
-
 
 interface Showtime {
     id: number;
@@ -93,7 +93,6 @@ const AdminDashboard: React.FC = () => {
     const auth = useContext(AuthContext);
     const navigate = useNavigate();
 
-    // Form States
     const [newTheater, setNewTheater] = useState({ name: '', location: '' });
     const [newMovie, setNewMovie] = useState<Partial<Movie>>({
         title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D'
@@ -102,39 +101,21 @@ const AdminDashboard: React.FC = () => {
     const [newShowtimeDate, setNewShowtimeDate] = useState('');
     const [newShowtimeTime, setNewShowtimeTime] = useState('');
     const [selectedScreenTiers, setSelectedScreenTiers] = useState<string[]>([]);
-    const [editingScreenTiers, setEditingScreenTiers] = useState<string[]>([]);
     const [newScreenName, setNewScreenName] = useState('');
     const [selectedTheaterId, setSelectedTheaterId] = useState<number | null>(null);
-
-    // Editing States
     const [editingMovie, setEditingMovie] = useState<Movie | null>(null);
-    const [editingShowtime, setEditingShowtime] = useState<Showtime | null>(null);
     const [editingScreen, setEditingScreen] = useState<{ id: number, name: string } | null>(null);
-
-    // Seat Gen
     const [genScreenId, setGenScreenId] = useState<number | null>(null);
     const [seatTiers, setSeatTiers] = useState<{ name: string; rows: number; price: number }[]>([
         { name: 'Classic', rows: 5, price: 150 }
     ]);
     const [seatCols, setSeatCols] = useState(10);
-    const [hasExistingSeats, setHasExistingSeats] = useState(false);
-
-    // Helper to format ISO UTC string to YYYY-MM-DDTHH:mm for datetime-local inputs
-    const toLocalDateString = (isoString: string) => {
-        if (!isoString) return '';
-        const date = new Date(isoString);
-        const offset = date.getTimezoneOffset() * 60000;
-        const localDate = new Date(date.getTime() - offset);
-        return localDate.toISOString().slice(0, 16);
-    };
 
     const fetchBookings = useCallback(async () => {
         try {
             const response = await api.get('/admin/bookings');
             setBookings(response.data);
-        } catch (error) {
-            console.error('Error fetching bookings:', error);
-        }
+        } catch (error) { console.error(error); }
     }, []);
 
     const fetchTheaters = useCallback(async () => {
@@ -158,171 +139,244 @@ const AdminDashboard: React.FC = () => {
         } catch (error) { console.error(error); }
     }, []);
 
-    // Shared tier fetching logic
-    const fetchTiersForScreen = useCallback(async (screenId: number, setTiers: (tiers: string[]) => void, updateState: (tierPrices: Record<string, number>) => void) => {
-        try {
-            const response = await api.get(`/admin/seats/${screenId}`);
-            const seats: any[] = response.data;
-            const tiers = [...new Set(seats.map(s => s.type))].sort();
-            setTiers(tiers);
-
-            const initialPrices: Record<string, number> = {};
-            tiers.forEach(t => {
-                const existingSeat = seats.find(s => s.type === t);
-                initialPrices[t] = existingSeat ? Number(existingSeat.price) : 150;
-            });
-            updateState(initialPrices);
-        } catch (error) {
-            console.error('Error fetching tiers:', error);
-            setTiers([]);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (genScreenId) {
-            const fetchSeats = async () => {
-                try {
-                    const res = await api.get(`/admin/seats/${genScreenId}`);
-                    if (res.data && res.data.length > 0) {
-                        setHasExistingSeats(true);
-                        const seats = res.data;
-
-                        // 1. Calculate max columns
-                        let maxCol = 0;
-                        seats.forEach((s: any) => {
-                            if (s.number > maxCol) maxCol = s.number;
-                        });
-                        setSeatCols(maxCol);
-
-                        // 2. Group seats by row
-                        const rowsMap = new Map<string, { type: string; price: number }>();
-                        seats.forEach((s: any) => {
-                            if (!rowsMap.has(s.row)) {
-                                rowsMap.set(s.row, { type: s.type, price: Number(s.price) });
-                            }
-                        });
-
-                        // 3. Sort rows by label (A, B, C...)
-                        const sortedRowLabels = Array.from(rowsMap.keys()).sort();
-
-                        // 4. Group contiguous rows of SAME type & price into tiers
-                        const reconstructedTiers: { name: string; rows: number; price: number }[] = [];
-                        let currentTier: { name: string; rows: number; price: number } | null = null;
-
-                        sortedRowLabels.forEach((label) => {
-                            const rowData = rowsMap.get(label)!;
-
-                            if (!currentTier || currentTier.name !== rowData.type || currentTier.price !== rowData.price) {
-                                // Start new tier
-                                if (currentTier) reconstructedTiers.push(currentTier);
-                                currentTier = { name: rowData.type, rows: 1, price: rowData.price };
-                            } else {
-                                // Add to current tier
-                                currentTier.rows += 1;
-                            }
-                        });
-
-                        if (currentTier) reconstructedTiers.push(currentTier);
-                        setSeatTiers(reconstructedTiers);
-
-                    } else {
-                        setHasExistingSeats(false);
-                        setSeatCols(10);
-                        setSeatTiers([{ name: 'Classic', rows: 5, price: 150 }]);
-                    }
-                } catch (e) {
-                    console.error(e);
-                }
-            };
-            fetchSeats();
-        }
-    }, [genScreenId]);
-
     useEffect(() => {
         fetchTheaters();
         fetchMovies();
         fetchShowtimes();
         fetchBookings();
-    }, [fetchMovies, fetchTheaters, fetchShowtimes, fetchBookings]);
+    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings]);
 
-    // Fetch tiers when screen changes in showtime form
     useEffect(() => {
-        if (newShowtime.screenId) {
-            fetchTiersForScreen(
-                newShowtime.screenId,
-                setSelectedScreenTiers,
-                (prices) => setNewShowtime(prev => ({ ...prev, tierPrices: prices }))
-            );
-        } else {
-            setSelectedScreenTiers([]);
-        }
-    }, [newShowtime.screenId, fetchTiersForScreen]);
+        if (!genScreenId) return; // Don't fetch if modal is closed
 
-    // Fetch tiers when screen changes in EDIT modal
-    useEffect(() => {
-        if (editingShowtime?.screenId) {
-            fetchTiersForScreen(
-                editingShowtime.screenId,
-                setEditingScreenTiers,
-                (prices) => {
-                    setEditingShowtime(prev => prev ? ({
-                        ...prev,
-                        tierPrices: { ...prices, ...(prev.tierPrices || {}) }
-                    }) : null);
+        // Reset to defaults first
+        setSeatTiers([{ name: 'Classic', rows: 5, price: 150 }]);
+        setSeatCols(10);
+
+        const fetchLayout = async () => {
+            try {
+                const response = await api.get(`/admin/seats/${genScreenId}`);
+                const seats = response.data;
+
+                if (seats && seats.length > 0) {
+                    const maxCol = Math.max(...seats.map((s: any) => s.number));
+                    setSeatCols(maxCol);
+
+                    const uniqueRows = [...new Set(seats.map((s: any) => s.row))].sort();
+                    const rowConfig = new Map();
+                    seats.forEach((s: any) => {
+                        if (!rowConfig.has(s.row)) {
+                            rowConfig.set(s.row, { type: s.type, price: s.price });
+                        }
+                    });
+
+                    const reconstructedTiers: any[] = [];
+                    let currentType = '';
+                    let currentPrice = 0;
+                    let currentRowCount = 0;
+
+                    const getRowIdx = (r: string) => r.charCodeAt(0) - 65;
+                    uniqueRows.sort((a: any, b: any) => getRowIdx(a) - getRowIdx(b));
+
+                    uniqueRows.forEach((row: any) => {
+                        const config = rowConfig.get(row);
+                        if (config.type !== currentType) {
+                            if (currentType) {
+                                reconstructedTiers.push({
+                                    name: currentType,
+                                    rows: currentRowCount,
+                                    price: currentPrice
+                                });
+                            }
+                            currentType = config.type;
+                            currentPrice = config.price;
+                            currentRowCount = 1;
+                        } else {
+                            currentRowCount++;
+                        }
+                    });
+
+                    if (currentType) {
+                        reconstructedTiers.push({
+                            name: currentType,
+                            rows: currentRowCount,
+                            price: currentPrice
+                        });
+                    }
+
+                    if (reconstructedTiers.length > 0) {
+                        setSeatTiers(reconstructedTiers);
+                    }
                 }
-            );
-        } else {
-            setEditingScreenTiers([]);
-        }
-    }, [editingShowtime?.screenId, fetchTiersForScreen]);
+            } catch (error) {
+                console.error("Failed to fetch layout", error);
+            }
+        };
 
-    const handleUpdateMovie = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!editingMovie) return;
-        if ((editingMovie.duration || 0) <= 0) {
-            alert('Duration must be greater than 0 minutes.');
-            return;
-        }
+        fetchLayout();
+    }, [genScreenId]);
 
+    const handleCreateTheater = async () => {
+        if (!newTheater.name || !newTheater.location) return;
         try {
-            await api.put(`/movies/${editingMovie.id}`, editingMovie);
-            setEditingMovie(null);
-            fetchMovies();
-            alert('Movie updated!');
+            await api.post('/admin/theaters', newTheater);
+            setNewTheater({ name: '', location: '' });
+            fetchTheaters();
+            alert('Theater created successfully! Please remember to add screens and configure seat layouts for this new location.');
         } catch (error) { console.error(error); }
     };
 
-    const handleUpdateShowtime = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!editingShowtime) return;
+    const handleDeleteTheater = async (id: number) => {
+        if (!window.confirm('Delete this theater?')) return;
         try {
-            // Recalculate end time for update too
-            const movie = movies.find(m => m.id === editingShowtime.movieId);
-            const start = new Date(editingShowtime.startTime);
-            const durationMs = (movie ? movie.duration : 120) * 60000;
-            const end = new Date(start.getTime() + durationMs);
+            await api.delete(`/admin/theaters/${id}`);
+            fetchTheaters();
+        } catch (error) { console.error(error); }
+    };
 
-            const payload = {
-                ...editingShowtime,
-                startTime: start.toISOString(),
-                endTime: end.toISOString()
-            };
+    const handleAddScreen = async (theaterId: number) => {
+        if (!newScreenName) return;
+        try {
+            await api.post(`/admin/screens`, { theaterId, name: newScreenName });
+            setNewScreenName('');
+            setSelectedTheaterId(null);
+            fetchTheaters();
+        } catch (error) { console.error(error); }
+    };
 
-            await api.put(`/showtimes/${editingShowtime.id}`, payload);
-            setEditingShowtime(null);
+    const handleUpdateScreen = async () => {
+        if (!editingScreen) return;
+        try {
+            await api.put(`/admin/screens/${editingScreen.id}`, { name: editingScreen.name });
+            setEditingScreen(null);
+            fetchTheaters();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleDeleteScreen = async (screenId: number) => {
+        if (!window.confirm('Delete this screen?')) return;
+        try {
+            await api.delete(`/admin/screens/${screenId}`);
+            fetchTheaters();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleGenerateSeats = async (screenId: number) => {
+        try {
+            await api.post(`/admin/screens/${screenId}/seats/generate`, { tiers: seatTiers, columns: seatCols });
+            setGenScreenId(null);
+            setSeatTiers([{ name: 'Classic', rows: 5, price: 150 }]);
+            setSeatCols(10);
+            alert('Seats generated successfully!');
+        } catch (error) { console.error(error); }
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'posterUrl' | 'bannerUrl', isEdit: boolean) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+            const response = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            const url = response.data.url;
+
+            if (isEdit && editingMovie) {
+                setEditingMovie({ ...editingMovie, [field]: url });
+            } else {
+                setNewMovie({ ...newMovie, [field]: url });
+            }
+        } catch (error) {
+            console.error('File upload failed:', error);
+            alert('File upload failed');
+        }
+    };
+
+    const handleCreateMovie = async () => {
+        try {
+            await api.post('/admin/movies', newMovie);
+            setNewMovie({ title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D' });
+            fetchMovies();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleUpdateMovie = async () => {
+        if (!editingMovie) return;
+        try {
+            await api.put(`/admin/movies/${editingMovie.id}`, editingMovie);
+            setEditingMovie(null);
+            fetchMovies();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleDeleteMovie = async (id: number) => {
+        if (!window.confirm('Delete this movie?')) return;
+        try {
+            await api.delete(`/admin/movies/${id}`);
+            fetchMovies();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleCreateShowtime = async () => {
+        if (!newShowtime.movieId || !newShowtime.screenId || !newShowtimeDate || !newShowtimeTime || !newShowtime.tierPrices) {
+            alert('Please fill all fields to schedule a showtime.');
+            return;
+        }
+        try {
+            const startTime = new Date(`${newShowtimeDate}T${newShowtimeTime}`).toISOString();
+            const movie = movies.find(m => m.id === newShowtime.movieId);
+            const durationMs = (movie?.duration || 120) * 60 * 1000;
+            const endTime = new Date(new Date(startTime).getTime() + durationMs).toISOString();
+
+            await api.post('/admin/showtimes', {
+                ...newShowtime,
+                startTime,
+                endTime,
+                tierPrices: newShowtime.tierPrices
+            });
+
+            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} });
+            setNewShowtimeDate('');
+            setNewShowtimeTime('');
+            setSelectedScreenTiers([]);
             fetchShowtimes();
-            alert('Showtime updated!');
         } catch (error: any) {
             console.error(error);
-            const data = error.response?.data;
-            if (data?.conflict) {
-                const { movieTitle, startTime, endTime } = data.conflict;
-                const localStart = new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                const localEnd = new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                alert(`Conflict: "${movieTitle}" is already scheduled from ${localStart} to ${localEnd} on this screen.`);
+            if (error.response && error.response.data && error.response.data.message) {
+                alert(`Error: ${error.response.data.message}`);
             } else {
-                alert(data?.message || 'Update failed');
+                alert('Failed to create showtime.');
             }
+        }
+    };
+
+    const handleDeleteShowtime = async (id: number) => {
+        if (!window.confirm('Delete this showtime?')) return;
+        try {
+            await api.delete(`/admin/showtimes/${id}`);
+            fetchShowtimes();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleDeleteBooking = async (id: number) => {
+        if (!window.confirm('Delete this booking?')) return;
+        try {
+            await api.delete(`/admin/bookings/${id}`);
+            fetchBookings();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleScreenSelect = async (screenId: number) => {
+        try {
+            const response = await api.get(`/admin/screens/${screenId}/tiers`);
+            setSelectedScreenTiers(response.data);
+            setNewShowtime({ ...newShowtime, screenId, tierPrices: {} });
+        } catch (error) {
+            console.error(error);
+            setSelectedScreenTiers([]);
         }
     };
 
@@ -331,896 +385,725 @@ const AdminDashboard: React.FC = () => {
         navigate('/login');
     };
 
-    const handleAddTheater = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            await api.post('/admin/theaters', newTheater);
-            setNewTheater({ name: '', location: '' });
-            fetchTheaters();
-            alert('Theater added successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert(error.response?.data?.message || 'Failed to add theater');
-        }
-    };
-
-    const handleAddMovie = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if ((newMovie.duration || 0) <= 0) {
-            alert('Duration must be greater than 0 minutes.');
-            return;
-        }
-
-        try {
-            // Filter out empty releaseDate so it sends undefined (or null) if not provided, letting backend handle it or error clearly
-            const payload = { ...newMovie, releaseDate: newMovie.releaseDate || undefined };
-            await api.post('/movies', payload);
-            setNewMovie({
-                title: '',
-                description: '',
-                genre: '',
-                duration: 120,
-                rating: 'PG-13',
-                posterUrl: '',
-                bannerUrl: '',
-                releaseDate: '',
-                language: 'English',
-                audio: 'Dolby Atmos',
-                format: 'IMAX 2D'
-            });
-            fetchMovies();
-            alert('Movie added successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert('Failed to add movie: ' + (error.response?.data?.message || error.message));
-        }
-    };
-
-    const handleDeleteMovie = async (id: number) => {
-        if (!confirm('Are you sure you want to delete this movie? This will also delete all associated showtimes if there are no active bookings.')) {
-            return;
-        }
-        try {
-            await api.delete(`/movies/${id}`);
-            fetchMovies();
-            alert('Movie deleted successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert('Failed to delete movie: ' + (error.response?.data?.message || error.message));
-        }
-    };
-
-    const handleAddShowtime = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            if (!newShowtimeDate || !newShowtimeTime || !newShowtime.movieId || !newShowtime.screenId) {
-                alert('Please fill in all fields (Movie, Screen, Date, Time)');
-                return;
-            }
-
-            const movie = movies.find(m => m.id === newShowtime.movieId);
-            const startStr = `${newShowtimeDate}T${newShowtimeTime}`;
-            const start = new Date(startStr);
-            const durationMs = (movie ? movie.duration : 120) * 60000;
-            const end = new Date(start.getTime() + durationMs);
-
-            const payload = {
-                ...newShowtime,
-                startTime: start.toISOString(),
-                endTime: end.toISOString()
-            };
-
-            await api.post('/showtimes', payload);
-            alert('Showtime initialized successfully!');
-            // Reset to empty strings for strings, 0 for IDs to avoid validation issues
-            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} });
-            setNewShowtimeDate('');
-            setNewShowtimeTime('');
-            fetchShowtimes(); // Refresh the showtimes list
-        } catch (error: any) {
-            console.error(error);
-            const data = error.response?.data;
-            if (data?.conflict) {
-                const { movieTitle, startTime, endTime } = data.conflict;
-                const localStart = new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                const localEnd = new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                alert(`Conflict: "${movieTitle}" is already scheduled from ${localStart} to ${localEnd} on this screen.`);
-            } else {
-                alert('Failed to add showtime: ' + (data?.message || error.message));
-            }
-        }
-    };
-
-    const handleAddScreen = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!selectedTheaterId) return;
-        try {
-            await api.post('/admin/screens', {
-                theaterId: selectedTheaterId,
-                name: newScreenName,
-            });
-            setNewScreenName('');
-            fetchTheaters();
-            alert('Screen added successfully! Please configure the seat layout for the new screen.');
-        } catch (error: any) {
-            console.error(error);
-            alert(error.response?.data?.message || 'Failed to add screen');
-        }
-    };
-
-    const handleUpdateScreen = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!editingScreen) return;
-        try {
-            await api.put(`/admin/screens/${editingScreen.id}`, { name: editingScreen.name });
-            setEditingScreen(null);
-            fetchTheaters();
-            alert('Screen renamed successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert(error.response?.data?.message || 'Failed to rename screen');
-        }
-    };
-
-    const handleGenerateSeats = async (screenId: number) => {
-        try {
-            await api.post('/admin/seats/generate', {
-                screenId, cols: seatCols, tiers: seatTiers,
-            });
-            alert('Seats generated!');
-            setGenScreenId(null);
-            fetchTheaters();
-        } catch (error: any) {
-            console.error(error);
-            alert(error.response?.data?.message || 'Failed to generate seats');
-        }
-    };
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setNewMovie({ ...newMovie, posterUrl: reader.result as string });
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setNewMovie({ ...newMovie, bannerUrl: reader.result as string });
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleEditPosterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            if (editingMovie) {
-                setEditingMovie({ ...editingMovie, posterUrl: reader.result as string });
-            }
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleEditBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            if (editingMovie) {
-                setEditingMovie({ ...editingMovie, bannerUrl: reader.result as string });
-            }
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleDeleteScreen = async (screenId: number) => {
-        if (!confirm('Are you sure you want to delete this screen? This will also delete all associated seats and showtimes.')) {
-            return;
-        }
-        try {
-            await api.delete(`/admin/screens/${screenId}`);
-            fetchTheaters();
-            alert('Screen deleted successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert('Failed to delete screen: ' + (error.response?.data?.message || error.message));
-        }
-    };
-
-    const handleDeleteShowtime = async (showtimeId: number) => {
-        if (!confirm('Are you sure you want to delete this showtime? This will also cancel all associated bookings.')) {
-            return;
-        }
-        try {
-            await api.delete(`/showtimes/${showtimeId}`);
-            fetchShowtimes();
-            alert('Showtime deleted successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert('Failed to delete showtime: ' + (error.response?.data?.message || error.message));
-        }
-    };
-
-    const handleDeleteBooking = async (bookingId: number) => {
-        if (!confirm('Are you sure you want to delete this booking?')) return;
-        try {
-            await api.delete(`/admin/bookings/${bookingId}`);
-            fetchBookings();
-            alert('Booking deleted successfully!');
-        } catch (error: any) {
-            console.error(error);
-            alert('Failed to delete booking: ' + (error.response?.data?.message || error.message));
-        }
-    };
-
-    const menuItems = [
-        { id: 'theaters', label: 'Theaters', icon: LayoutDashboard },
-        { id: 'movies', label: 'Movies', icon: Film },
-        { id: 'showtimes', label: 'Showtimes', icon: Calendar },
-        { id: 'bookings', label: 'Bookings', icon: TicketIcon },
-    ] as const;
+    const tabs = [
+        { id: 'theaters' as const, label: 'Theaters', icon: LayoutDashboard },
+        { id: 'movies' as const, label: 'Movies', icon: Film },
+        { id: 'showtimes' as const, label: 'Showtimes', icon: Calendar },
+        { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon }
+    ];
 
     return (
-        <div className="flex min-h-screen bg-[#0a0a0b] text-white">
-            {/* Sidebar */}
-            <aside className="w-72 bg-white/5 border-r border-white/5 flex flex-col pt-12">
-                <div className="px-8 mb-12 flex items-center gap-4">
-                    <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center font-black">A</div>
-                    <span className="text-xl font-black tracking-tighter">ADMIN CORE</span>
+        <div className="min-h-screen bg-neutral-950 text-white pb-8">
+            {/* Header */}
+            <div className="sticky top-0 z-40 bg-neutral-950/80 backdrop-blur-xl border-b border-white/5">
+                <div className="max-w-7xl mx-auto px-5 py-5">
+                    <div className="flex items-center justify-between mb-8">
+                        <div className="flex items-center gap-4">
+                            <motion.button
+                                whileHover={{ scale: 1.05, x: -2 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => navigate('/')}
+                                className="w-12 h-12 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-center text-neutral-400 hover:text-white hover:border-white/10 transition-colors"
+                            >
+                                <ChevronLeft className="w-6 h-6" />
+                            </motion.button>
+                            <div>
+                                <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider">System Management</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className="hidden sm:flex flex-col items-end mr-2">
+                                <p className="text-sm font-semibold">{auth?.user?.name}</p>
+                                <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">Administrator</p>
+                            </div>
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={handleLogout}
+                                className="w-12 h-12 rounded-2xl bg-red-500/5 border border-red-500/10 flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-colors"
+                            >
+                                <LogOut className="w-5 h-5" />
+                            </motion.button>
+                        </div>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                        {tabs.map((tab) => {
+                            const Icon = tab.icon;
+                            const isActive = currentTab === tab.id;
+                            return (
+                                <motion.button
+                                    key={tab.id}
+                                    whileHover={{ y: -1 }}
+                                    whileTap={{ scale: 0.97 }}
+                                    onClick={() => setCurrentTab(tab.id)}
+                                    className={`relative flex items-center gap-2.5 px-6 py-3 rounded-2xl whitespace-nowrap transition-all duration-300 ${isActive
+                                        ? 'text-white'
+                                        : 'text-neutral-500 hover:text-neutral-300'
+                                        }`}
+                                >
+                                    {isActive && (
+                                        <motion.div
+                                            layoutId="activeTab"
+                                            className="absolute inset-0 bg-emerald-500 rounded-2xl shadow-lg shadow-emerald-500/20"
+                                            transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                                        />
+                                    )}
+                                    <Icon className={`relative z-10 w-4.5 h-4.5 ${isActive ? 'text-white' : ''}`} />
+                                    <span className="relative z-10 text-sm font-bold">{tab.label}</span>
+                                </motion.button>
+                            );
+                        })}
+                    </div>
                 </div>
+            </div>
 
-                <nav className="flex-1 px-4 space-y-2">
-                    {menuItems.map(({ id, label, icon: Icon }) => (
-                        <button
-                            key={id}
-                            onClick={() => setCurrentTab(id)}
-                            className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${currentTab === id ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-                        >
-                            <Icon className="w-5 h-5" />
-                            {label}
-                        </button>
-                    ))}
-                    <div className="pt-8 pb-4">
-                        <div className="h-px bg-white/5 mx-4 mb-8" />
-                        <button
-                            onClick={() => navigate('/')}
-                            className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-gray-500 hover:text-white hover:bg-white/5 transition-all"
-                        >
-                            <ExternalLink className="w-5 h-5" />
-                            View Website
-                        </button>
-                    </div>
-                </nav>
-
-                <div className="p-8 border-t border-white/5">
-                    <button onClick={handleLogout} className="flex items-center gap-4 text-gray-500 hover:text-red-500 font-bold transition-colors">
-                        <LogOut className="w-5 h-5" />
-                        Sign Out
-                    </button>
-                </div>
-            </aside>
-
-            {/* Main Content */}
-            <main className="flex-1 p-12 overflow-y-auto">
-                <header className="mb-12 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-4xl font-black tracking-tight capitalize mb-2">{currentTab}</h1>
-                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest">Cinema Management Protocol</p>
-                    </div>
-                    <div className="relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                        <input type="text" placeholder="Global Search..." className="bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-3 text-sm focus:outline-none focus:border-blue-500 transition-all w-64" />
-                    </div>
-                </header>
-
+            {/* Content */}
+            <div className="max-w-7xl mx-auto px-5 py-8">
                 <AnimatePresence mode="wait">
-                    <motion.div
-                        key={currentTab}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.4 }}
-                    >
-                        {currentTab === 'theaters' && (
-                            <div className="space-y-10">
-                                <div className="glass-card p-10 rounded-[40px]">
-                                    <h2 className="text-xl font-black mb-8 flex items-center gap-3">
-                                        <Plus className="text-blue-500 w-5 h-5" />
-                                        Initialize New Venue
-                                    </h2>
-                                    <form onSubmit={handleAddTheater} className="grid grid-cols-3 gap-6">
-                                        <input type="text" placeholder="Venue Name" value={newTheater.name} onChange={(e) => setNewTheater({ ...newTheater, name: e.target.value })} className="premium-input" />
-                                        <input type="text" placeholder="Location City" value={newTheater.location} onChange={(e) => setNewTheater({ ...newTheater, location: e.target.value })} className="premium-input" />
-                                        <button className="neon-button !py-0">Register Theater</button>
-                                    </form>
-                                </div>
-
-                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                                    {theaters.map(theater => (
-                                        <div key={theater.id} className="glass-card p-8 rounded-[40px] hover:border-white/20 transition-all group">
-                                            <div className="flex justify-between items-start mb-8">
-                                                <div>
-                                                    <h3 className="text-2xl font-black tracking-tight leading-tight">{theater.name}</h3>
-                                                    <div className="flex items-center gap-2 text-gray-500 mt-2">
-                                                        <MapPin className="w-3 h-3 text-blue-500" />
-                                                        <span className="text-[10px] font-black uppercase tracking-widest">{theater.location}</span>
-                                                    </div>
-                                                </div>
-                                                <button onClick={() => setSelectedTheaterId(theater.id)} className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-500/20 text-blue-500 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all">
-                                                    <Plus className="w-6 h-6" />
-                                                </button>
+                    {/* THEATERS TAB */}
+                    {currentTab === 'theaters' && (
+                        <motion.div
+                            key="theaters"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="grid lg:grid-cols-[400px_1fr] gap-8"
+                        >
+                            {/* Create Theater Form */}
+                            <div className="space-y-6">
+                                <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44">
+                                    <div className="space-y-1">
+                                        <h3 className="text-xl font-bold flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                                                <Plus className="w-4 h-4 text-emerald-500" />
                                             </div>
-
-                                            <div className="space-y-3">
-                                                {theater.screens?.map(screen => (
-                                                    <div key={screen.id} className="flex flex-wrap gap-4 justify-between items-center p-5 bg-white/5 rounded-3xl border border-transparent hover:border-white/10 transition-all">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-8 h-8 rounded-xl bg-gray-900 border border-white/5 flex items-center justify-center text-[10px] font-black">{screen.name.split(' ')[1] || 'S'}</div>
-                                                            <span className="font-bold text-sm whitespace-nowrap">{screen.name}</span>
-                                                        </div>
-                                                        <div className="flex gap-2 shrink-0">
-                                                            <button onClick={() => setEditingScreen({ id: screen.id, name: screen.name })} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 sm:px-4 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all whitespace-nowrap">Edit Name</button>
-                                                            <button onClick={() => setGenScreenId(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-4 py-2 sm:px-5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all whitespace-nowrap">
-                                                                <span className="hidden sm:inline">Layout</span> Config
-                                                            </button>
-                                                            <button onClick={() => handleDeleteScreen(screen.id)} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 sm:px-4 sm:py-3 rounded-2xl bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 transition-all whitespace-nowrap">Delete</button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            {selectedTheaterId === theater.id && (
-                                                <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} onSubmit={handleAddScreen} className="mt-8 pt-8 border-t border-white/5 flex gap-4">
-                                                    <input type="text" placeholder="Screen Designation..." value={newScreenName} onChange={(e) => setNewScreenName(e.target.value)} className="premium-input flex-1" />
-                                                    <button className="bg-green-600 px-8 rounded-2xl font-black text-sm">Save</button>
-                                                    <button type="button" onClick={() => setSelectedTheaterId(null)} className="text-gray-500 font-bold p-2">✕</button>
-                                                </motion.form>
-                                            )}
-
-                                            {/* Screen Rename Modal (Inline-ish) */}
-                                            {editingScreen && theaters.find(t => t.screens?.some(s => s.id === editingScreen.id))?.id === theater.id && (
-                                                <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 sm:p-10 pointer-events-none">
-                                                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-[#0a0a0b] border border-white/10 w-full max-w-md rounded-[40px] shadow-2xl p-10 pointer-events-auto">
-                                                        <h3 className="text-xl font-black mb-6">Rename Functional Node</h3>
-                                                        <form onSubmit={handleUpdateScreen} className="space-y-6">
-                                                            <input type="text" value={editingScreen.name} onChange={e => setEditingScreen({ ...editingScreen, name: e.target.value })} className="premium-input w-full" required />
-                                                            <div className="flex gap-4">
-                                                                <button className="neon-button flex-1">Update Name</button>
-                                                                <button type="button" onClick={() => setEditingScreen(null)} className="flex-1 bg-white/5 hover:bg-white/10 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">Cancel</button>
-                                                            </div>
-                                                        </form>
-                                                    </motion.div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {currentTab === 'movies' && (
-                            <div className="space-y-10">
-                                <div className="glass-card p-10 rounded-[40px]">
-                                    <h2 className="text-xl font-black mb-8 flex items-center gap-3">
-                                        <Film className="text-blue-500 w-5 h-5" />
-                                        Register Visual Asset
-                                    </h2>
-                                    <form onSubmit={handleAddMovie} className="grid grid-cols-4 gap-6">
-                                        <input type="text" placeholder="Feature Title" value={newMovie.title} onChange={e => setNewMovie({ ...newMovie, title: e.target.value })} className="premium-input" />
-                                        <input type="text" placeholder="Primary Genre" value={newMovie.genre} onChange={e => setNewMovie({ ...newMovie, genre: e.target.value })} className="premium-input" />
-                                        <input type="number" placeholder="Duration (min)" value={newMovie.duration} onChange={e => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="premium-input" />
-                                        <div className="col-span-2 space-y-2">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">📱 Poster (Card Thumbnail)</label>
-                                            <div className="relative group">
-                                                <input type="text" placeholder="Poster URL" value={newMovie.posterUrl} onChange={e => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="premium-input w-full pr-12" />
-                                                <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                    <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
-                                                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                                                </label>
-                                            </div>
-                                            {newMovie.posterUrl && (
-                                                <img src={newMovie.posterUrl} alt="Poster preview" className="w-full h-32 object-cover rounded-2xl border border-white/10" />
-                                            )}
-                                        </div>
-                                        <div className="col-span-2 space-y-2">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">🎬 Banner (Hero Image)</label>
-                                            <div className="relative group">
-                                                <input type="text" placeholder="Banner URL" value={newMovie.bannerUrl} onChange={e => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="premium-input w-full pr-12" />
-                                                <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                    <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
-                                                    <input type="file" accept="image/*" onChange={handleBannerUpload} className="hidden" />
-                                                </label>
-                                            </div>
-                                            {newMovie.bannerUrl && (
-                                                <img src={newMovie.bannerUrl} alt="Banner preview" className="w-full h-32 object-cover rounded-2xl border border-white/10" />
-                                            )}
-                                        </div>
-                                        <div className="flex gap-4 col-span-2">
-                                            <input type="text" placeholder="Rating (e.g. PG-13)" value={newMovie.rating} onChange={e => setNewMovie({ ...newMovie, rating: e.target.value })} className="premium-input w-full" />
-                                            <input type="date" placeholder="Release Date" value={newMovie.releaseDate} onChange={e => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="premium-input w-full" />
-                                        </div>
-                                        <div className="flex gap-4 col-span-2">
-                                            <input type="text" placeholder="Language" value={newMovie.language} onChange={e => setNewMovie({ ...newMovie, language: e.target.value })} className="premium-input w-full" />
-                                            <input type="text" placeholder="Audio" value={newMovie.audio} onChange={e => setNewMovie({ ...newMovie, audio: e.target.value })} className="premium-input w-full" />
-                                        </div>
-                                        <input type="text" placeholder="Format (e.g. IMAX 2D)" value={newMovie.format} onChange={e => setNewMovie({ ...newMovie, format: e.target.value })} className="premium-input col-span-4" />
-                                        <textarea placeholder="Feature Synopsis..." value={newMovie.description} onChange={e => setNewMovie({ ...newMovie, description: e.target.value })} className="premium-input col-span-4 h-24" />
-                                        <button className="neon-button !py-4 col-span-4">Save Movie</button>
-                                    </form>
-                                </div>
-
-                                <div className="grid grid-cols-4 gap-8">
-                                    {movies.map(movie => (
-                                        <div key={movie.id} className="glass-card rounded-[40px] overflow-hidden group">
-                                            <div className="relative h-64 overflow-hidden">
-                                                <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                                <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#0a0a0b] to-transparent opacity-80"></div>
-                                                <div className="absolute bottom-6 left-6 right-6">
-                                                    <span className="bg-blue-600 text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-lg">{movie.rating}</span>
-                                                </div>
-                                            </div>
-                                            <div className="p-8">
-                                                <div className="flex justify-between items-start mb-2 gap-4">
-                                                    <h3 className="font-black text-lg truncate leading-tight flex-1">{movie.title}</h3>
-                                                    <div className="flex gap-4">
-                                                        <button
-                                                            onClick={() => setEditingMovie(movie)}
-                                                            className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors"
-                                                        >
-                                                            Edit
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteMovie(movie.id)}
-                                                            className="text-[10px] font-black uppercase text-red-500 hover:text-red-400 transition-colors"
-                                                        >
-                                                            Delete
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-4 text-[10px] font-black text-gray-500 uppercase tracking-widest">
-                                                    <span>{movie.genre}</span>
-                                                    <span className="w-1 h-1 bg-gray-700 rounded-full"></span>
-                                                    <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {movie.duration}m</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {editingMovie && (
-                                    <div className="fixed inset-0 bg-[#0a0a0b]/80 backdrop-blur-xl flex items-center justify-center p-4 z-50">
-                                        <div className="glass-card p-10 rounded-[40px] max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
-                                            <h2 className="text-xl font-black mb-8 flex items-center gap-3">
-                                                <Film className="text-blue-500 w-5 h-5" />
-                                                Edit Movie Details
-                                            </h2>
-                                            <form onSubmit={handleUpdateMovie} className="grid grid-cols-2 gap-6">
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Title</label>
-                                                    <input type="text" value={editingMovie.title} onChange={e => setEditingMovie({ ...editingMovie, title: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Genre</label>
-                                                    <input type="text" value={editingMovie.genre} onChange={e => setEditingMovie({ ...editingMovie, genre: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Duration (min)</label>
-                                                    <input type="number" value={editingMovie.duration} onChange={e => setEditingMovie({ ...editingMovie, duration: parseInt(e.target.value) })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">📱 Poster URL (Cards)</label>
-                                                    <div className="relative group">
-                                                        <input type="text" value={editingMovie.posterUrl} onChange={e => setEditingMovie({ ...editingMovie, posterUrl: e.target.value })} className="premium-input w-full pr-12" />
-                                                        <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                            <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
-                                                            <input type="file" accept="image/*" onChange={handleEditPosterUpload} className="hidden" />
-                                                        </label>
-                                                    </div>
-                                                    {editingMovie.posterUrl && (
-                                                        <img src={editingMovie.posterUrl} alt="Poster preview" className="w-full h-24 object-cover rounded-2xl border border-white/10" />
-                                                    )}
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">🎬 Banner URL (Hero)</label>
-                                                    <div className="relative group">
-                                                        <input type="text" value={editingMovie.bannerUrl || ''} onChange={e => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="premium-input w-full pr-12" />
-                                                        <label className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                            <Upload className="w-4 h-4 text-gray-500 group-focus-within:text-blue-500" />
-                                                            <input type="file" accept="image/*" onChange={handleEditBannerUpload} className="hidden" />
-                                                        </label>
-                                                    </div>
-                                                    {editingMovie.bannerUrl && (
-                                                        <img src={editingMovie.bannerUrl} alt="Banner preview" className="w-full h-24 object-cover rounded-2xl border border-white/10" />
-                                                    )}
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Rating</label>
-                                                    <input type="text" value={editingMovie.rating} onChange={e => setEditingMovie({ ...editingMovie, rating: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Language</label>
-                                                    <input type="text" value={editingMovie.language} onChange={e => setEditingMovie({ ...editingMovie, language: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Audio</label>
-                                                    <input type="text" value={editingMovie.audio} onChange={e => setEditingMovie({ ...editingMovie, audio: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Format</label>
-                                                    <input type="text" value={editingMovie.format} onChange={e => setEditingMovie({ ...editingMovie, format: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Release Date</label>
-                                                    <input type="date" value={editingMovie.releaseDate || ''} onChange={e => setEditingMovie({ ...editingMovie, releaseDate: e.target.value })} className="premium-input w-full" />
-                                                </div>
-                                                <div className="col-span-2 space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase">Synopsis</label>
-                                                    <textarea value={editingMovie.description} onChange={e => setEditingMovie({ ...editingMovie, description: e.target.value })} className="premium-input w-full h-24" />
-                                                </div>
-                                                <div className="col-span-2 flex gap-4 pt-4">
-                                                    <button className="neon-button flex-1">Save Changes</button>
-                                                    <button type="button" onClick={() => setEditingMovie(null)} className="flex-1 bg-white/5 hover:bg-white/10 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">Cancel</button>
-                                                </div>
-                                            </form>
-                                        </div>
+                                            Add Theater
+                                        </h3>
+                                        <p className="text-sm text-neutral-500">Register a new cinema location</p>
                                     </div>
-                                )}
-                            </div>
-                        )}
 
-                        {currentTab === 'showtimes' && (
-                            <div className="space-y-10">
-                                <div className="glass-card p-10 rounded-[40px]">
-                                    <h2 className="text-xl font-black mb-8 flex items-center gap-3">
-                                        <Calendar className="text-blue-500 w-5 h-5" />
-                                        Schedule Operational Session
-                                    </h2>
-                                    <form onSubmit={handleAddShowtime} className="space-y-8">
-                                        <div className="grid grid-cols-2 gap-8">
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Feature</label>
-                                                <select value={newShowtime.movieId || ''} onChange={e => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="premium-input w-full appearance-none">
-                                                    <option value="">Select Movie</option>
-                                                    {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Screen</label>
-                                                <select value={newShowtime.screenId || ''} onChange={e => setNewShowtime({ ...newShowtime, screenId: parseInt(e.target.value) })} className="premium-input w-full appearance-none">
-                                                    <option value="">Select Screen</option>
-                                                    {theaters.map(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
-                                                </select>
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Theater Name</label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. Cineplex Downtown"
+                                                value={newTheater.name}
+                                                onChange={(e) => setNewTheater({ ...newTheater, name: e.target.value })}
+                                                className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Location</label>
+                                            <div className="relative">
+                                                <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-600" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="City, Area"
+                                                    value={newTheater.location}
+                                                    onChange={(e) => setNewTheater({ ...newTheater, location: e.target.value })}
+                                                    className="w-full h-14 pl-12 pr-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
+                                                />
                                             </div>
                                         </div>
-
-                                        <div className="grid grid-cols-2 gap-8">
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Date</label>
-                                                <input type="date" value={newShowtimeDate} onChange={e => setNewShowtimeDate(e.target.value)} className="premium-input w-full" />
-                                            </div>
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Start Time</label>
-                                                <input type="time" value={newShowtimeTime} onChange={e => setNewShowtimeTime(e.target.value)} className="premium-input w-full" />
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            <div className="flex justify-between items-center px-1">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Pricing Configuration</label>
-                                                {selectedScreenTiers.length === 0 && (
-                                                    <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded">No tiers detected</span>
-                                                )}
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-6">
-                                                {selectedScreenTiers.map(tier => (
-                                                    <div key={tier} className="relative group">
-                                                        <div className="absolute -top-2 left-3 bg-[#0a0a0b] px-2 text-[8px] font-black text-blue-500 uppercase tracking-widest z-10 transition-all group-focus-within:text-white">
-                                                            Tier: {tier}
-                                                        </div>
-                                                        <div className="relative">
-                                                            <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-600" />
-                                                            <input
-                                                                type="number"
-                                                                value={newShowtime.tierPrices[tier] || ''}
-                                                                onChange={e => setNewShowtime({
-                                                                    ...newShowtime,
-                                                                    tierPrices: { ...newShowtime.tierPrices, [tier]: parseFloat(e.target.value) || 0 }
-                                                                })}
-                                                                className="premium-input pl-10 w-full"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        <button className="neon-button w-full py-6">Initialize Operational Session</button>
-                                    </form>
+                                        <motion.button
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={handleCreateTheater}
+                                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                        >
+                                            Create Theater
+                                        </motion.button>
+                                    </div>
                                 </div>
+                            </div>
 
-                                <div className="space-y-4">
-                                    <h2 className="text-xl font-black mb-6">Existing Showtimes</h2>
-                                    <div className="grid gap-4">
-                                        {showtimes.map(st => (
-                                            <div key={st.id} className="glass-card p-6 rounded-3xl flex justify-between items-center group">
-                                                <div className="flex items-center gap-8">
-                                                    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center">
-                                                        <span className="text-[8px] font-black uppercase opacity-50">{new Date(st.startTime).toLocaleDateString([], { month: 'short' })}</span>
-                                                        <span className="text-xl font-black">{new Date(st.startTime).getDate()}</span>
-                                                    </div>
-                                                    <div>
-                                                        <h4 className="font-black text-lg leading-none mb-2">{st.movie?.title}</h4>
-                                                        <div className="flex items-center gap-3 text-[10px] font-black text-gray-500 uppercase tracking-widest">
-                                                            <span>{st.screen?.theater?.name}</span>
-                                                            <span className="w-1 h-1 bg-gray-700 rounded-full"></span>
-                                                            <span>{st.screen?.name}</span>
-                                                            <span className="w-1 h-1 bg-gray-700 rounded-full"></span>
-                                                            <span className="text-blue-500">{new Date(st.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            {/* Theater List */}
+                            <div className="space-y-6">
+                                {theaters.length === 0 ? (
+                                    <div className="h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
+                                        <LayoutDashboard className="w-12 h-12 mb-3 opacity-20" />
+                                        <p className="font-medium">No theaters registered yet</p>
+                                    </div>
+                                ) : (
+                                    theaters.map((theater) => (
+                                        <motion.div
+                                            key={theater.id}
+                                            layout
+                                            className="rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden group hover:border-emerald-500/20 transition-colors"
+                                        >
+                                            <div className="p-6">
+                                                <div className="flex items-start justify-between mb-6">
+                                                    <div className="space-y-1">
+                                                        <h4 className="text-xl font-bold group-hover:text-emerald-400 transition-colors">{theater.name}</h4>
+                                                        <div className="text-sm text-neutral-500 flex items-center gap-2">
+                                                            <div className="w-5 h-5 rounded-md bg-neutral-800 flex items-center justify-center">
+                                                                <MapPin className="w-3 h-3" />
+                                                            </div>
+                                                            {theater.location}
                                                         </div>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-6">
-                                                    <div className="text-right">
-                                                        <p className="font-black text-xs text-blue-500 uppercase tracking-widest">Tiered</p>
-                                                        <p className="text-[8px] font-black uppercase opacity-50 tracking-widest">Pricing</p>
                                                     </div>
                                                     <div className="flex gap-2">
-                                                        <button
-                                                            onClick={() => setEditingShowtime(st)}
-                                                            className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-blue-600 hover:border-blue-500 transition-all"
+                                                        <motion.button
+                                                            whileHover={{ scale: 1.1 }}
+                                                            whileTap={{ scale: 0.9 }}
+                                                            onClick={() => handleDeleteTheater(theater.id)}
+                                                            className="w-10 h-10 rounded-xl bg-red-500/5 border border-red-500/10 flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-colors"
                                                         >
-                                                            <Search className="w-5 h-5" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteShowtime(st.id)}
-                                                            className="w-12 h-12 rounded-2xl bg-red-900/20 border border-red-900/30 flex items-center justify-center hover:bg-red-600 hover:border-red-500 transition-all"
-                                                        >
-                                                            <span className="text-lg">×</span>
-                                                        </button>
+                                                            <Trash2 className="w-4.5 h-4.5" />
+                                                        </motion.button>
                                                     </div>
                                                 </div>
+
+                                                {/* Screens */}
+                                                <div className="space-y-3">
+                                                    <div className="flex items-center justify-between px-1">
+                                                        <h5 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Available Screens ({theater.screens?.length || 0})</h5>
+                                                    </div>
+
+                                                    <div className="grid sm:grid-cols-2 gap-3">
+                                                        {theater.screens?.map((screen) => (
+                                                            <motion.div
+                                                                key={screen.id}
+                                                                layout
+                                                                className="group/screen flex items-center justify-between p-4 rounded-2xl bg-neutral-800 border border-transparent hover:border-emerald-500/30 hover:bg-neutral-800/80 transition-all"
+                                                            >
+                                                                {editingScreen?.id === screen.id ? (
+                                                                    <div className="flex flex-1 gap-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            autoFocus
+                                                                            value={editingScreen.name}
+                                                                            onChange={(e) => setEditingScreen({ ...editingScreen, name: e.target.value })}
+                                                                            className="flex-1 h-9 px-3 rounded-xl bg-neutral-900 border border-white/10 text-xs focus:outline-none focus:border-emerald-500/50"
+                                                                        />
+                                                                        <div className="flex gap-1">
+                                                                            <button onClick={handleUpdateScreen} className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center">
+                                                                                <Plus className="w-3.5 h-3.5 rotate-45" style={{ transform: 'rotate(0deg)' }} />
+                                                                                {/* Just using Plus as Placeholder for checkmark in lucide? No, I'll use text */}
+                                                                                <span className="text-[10px] font-bold">OK</span>
+                                                                            </button>
+                                                                            <button onClick={() => setEditingScreen(null)} className="w-8 h-8 rounded-lg bg-neutral-700 text-white flex items-center justify-center">
+                                                                                <X className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-white/5 flex items-center justify-center group-hover/screen:border-emerald-500/20 transition-colors">
+                                                                                <Monitor className="w-4 h-4 text-emerald-500/60" />
+                                                                            </div>
+                                                                            <span className="text-sm font-bold">{screen.name}</span>
+                                                                        </div>
+                                                                        <div className="flex gap-1.5 opacity-0 group-hover/screen:opacity-100 transition-opacity">
+                                                                            <button
+                                                                                onClick={() => setGenScreenId(screen.id)}
+                                                                                className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold tracking-tight hover:bg-emerald-500/20 transition-colors"
+                                                                            >
+                                                                                Layout
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => setEditingScreen({ id: screen.id, name: screen.name })}
+                                                                                className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 flex items-center justify-center transition-colors"
+                                                                            >
+                                                                                <Edit2 className="w-3.5 h-3.5 text-neutral-300" />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleDeleteScreen(screen.id)}
+                                                                                className="w-8 h-8 rounded-lg bg-red-400/5 hover:bg-red-400/10 flex items-center justify-center transition-colors"
+                                                                            >
+                                                                                <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </>
+                                                                )}
+                                                            </motion.div>
+                                                        ))}
+
+                                                        {/* Add Screen Inline */}
+                                                        {selectedTheaterId === theater.id ? (
+                                                            <div className="flex items-center gap-2 p-3 rounded-2xl bg-neutral-800/40 border border-dashed border-white/10">
+                                                                <input
+                                                                    type="text"
+                                                                    autoFocus
+                                                                    placeholder="Screen name..."
+                                                                    value={newScreenName}
+                                                                    onChange={(e) => setNewScreenName(e.target.value)}
+                                                                    className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 border border-transparent text-sm focus:outline-none focus:border-emerald-500/30"
+                                                                />
+                                                                <button onClick={() => handleAddScreen(theater.id)} className="px-4 h-10 rounded-xl bg-emerald-500 text-white text-xs font-bold">Add</button>
+                                                                <button onClick={() => { setSelectedTheaterId(null); setNewScreenName(''); }} className="w-10 h-10 rounded-xl bg-neutral-700 text-white flex items-center justify-center">
+                                                                    <X className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <motion.button
+                                                                whileHover={{ scale: 1.01 }}
+                                                                whileTap={{ scale: 0.99 }}
+                                                                onClick={() => setSelectedTheaterId(theater.id)}
+                                                                className="flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/10 text-emerald-500/80 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all text-xs font-bold"
+                                                            >
+                                                                <Plus className="w-3.5 h-3.5" />
+                                                                Add New Screen
+                                                            </motion.button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* MOVIES TAB */}
+                    {currentTab === 'movies' && (
+                        <motion.div
+                            key="movies"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="grid lg:grid-cols-[400px_1fr] gap-8"
+                        >
+                            {/* Create Movie Form */}
+                            <div className="space-y-6">
+                                <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
+                                    <div className="space-y-1">
+                                        <h3 className="text-xl font-bold flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                                                <Plus className="w-4 h-4 text-emerald-500" />
+                                            </div>
+                                            Add Movie
+                                        </h3>
+                                        <p className="text-sm text-neutral-500">Register a new film in the system</p>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Title</label>
+                                            <input type="text" placeholder="Movie Title" value={newMovie.title || ''} onChange={(e) => setNewMovie({ ...newMovie, title: e.target.value })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Description</label>
+                                            <textarea placeholder="Plot summary..." value={newMovie.description || ''} onChange={(e) => setNewMovie({ ...newMovie, description: e.target.value })} className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all resize-none" />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Genre</label>
+                                                <input type="text" placeholder="Action..." value={newMovie.genre || ''} onChange={(e) => setNewMovie({ ...newMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Mins</label>
+                                                <input type="number" placeholder="120" value={newMovie.duration || ''} onChange={(e) => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Rating</label>
+                                                <input type="text" placeholder="8.5" value={newMovie.rating || ''} onChange={(e) => setNewMovie({ ...newMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
+                                                <input type="date" value={newMovie.releaseDate || ''} onChange={(e) => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-xs" />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Language</label>
+                                                <input type="text" placeholder="English" value={newMovie.language || ''} onChange={(e) => setNewMovie({ ...newMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Audio</label>
+                                                <input type="text" placeholder="Dolby Atmos" value={newMovie.audio || ''} onChange={(e) => setNewMovie({ ...newMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Format</label>
+                                                <input type="text" placeholder="IMAX 2D" value={newMovie.format || ''} onChange={(e) => setNewMovie({ ...newMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between items-center">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
+                                                <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                                    Upload
+                                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', false)} />
+                                                </label>
+                                            </div>
+                                            <input type="text" placeholder="https://..." value={newMovie.posterUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between items-center">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
+                                                <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                                    Upload
+                                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', false)} />
+                                                </label>
+                                            </div>
+                                            <input type="text" placeholder="https://..." value={newMovie.bannerUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                        </div>
+                                        <motion.button
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={handleCreateMovie}
+                                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                        >
+                                            Create Movie
+                                        </motion.button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Movie List */}
+                            <div className="grid md:grid-cols-2 gap-6">
+                                {movies.length === 0 ? (
+                                    <div className="col-span-full h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
+                                        <Film className="w-12 h-12 mb-3 opacity-20" />
+                                        <p className="font-medium">No movies added yet</p>
+                                    </div>
+                                ) : (
+                                    movies.map((movie) => (
+                                        <motion.div
+                                            key={movie.id}
+                                            layout
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            className="group relative rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden hover:border-emerald-500/30 transition-all"
+                                        >
+                                            <div className="flex aspect-[1.8/1]">
+                                                <div className="w-1/3 relative overflow-hidden">
+                                                    <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent to-neutral-900"></div>
+                                                </div>
+                                                <div className="flex-1 p-5 space-y-3 flex flex-col justify-center">
+                                                    <div className="space-y-1">
+                                                        <h4 className="text-lg font-bold line-clamp-1 group-hover:text-emerald-400 transition-colors">{movie.title}</h4>
+                                                        <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">{movie.description}</p>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">{movie.genre}</span>
+                                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
+                                                            <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
+                                                            <span className="text-[10px] font-bold text-amber-500">{movie.rating}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
+                                                            <Clock className="w-2.5 h-2.5 text-blue-400" />
+                                                            <span className="text-[10px] font-bold text-blue-400">{movie.duration}m</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Action Buttons Overlay */}
+                                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => setEditingMovie(movie)}
+                                                    className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-emerald-500 hover:border-emerald-500 transition-all"
+                                                >
+                                                    <Edit2 className="w-4 h-4" />
+                                                </motion.button>
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => handleDeleteMovie(movie.id)}
+                                                    className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-red-500 hover:border-red-500 transition-all"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </motion.button>
+                                            </div>
+                                        </motion.div>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* SHOWTIMES TAB */}
+                    {currentTab === 'showtimes' && (
+                        <motion.div
+                            key="showtimes"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="grid lg:grid-cols-[400px_1fr] gap-8"
+                        >
+                            {/* Create Showtime Form */}
+                            <div className="space-y-6">
+                                <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
+                                    <div className="space-y-1">
+                                        <h3 className="text-xl font-bold flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                                                <Calendar className="w-4 h-4 text-emerald-500" />
+                                            </div>
+                                            Add Showtime
+                                        </h3>
+                                        <p className="text-sm text-neutral-500">Schedule a movie screening</p>
+                                    </div>
+
+                                    <div className="space-y-4 text-sm">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Movie</label>
+                                            <select value={newShowtime.movieId} onChange={(e) => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 appearance-none transition-all">
+                                                <option value={0}>Choose a movie...</option>
+                                                {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Screen</label>
+                                            <select value={newShowtime.screenId} onChange={(e) => handleScreenSelect(parseInt(e.target.value))} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 appearance-none transition-all">
+                                                <option value={0}>Choose a screen...</option>
+                                                {theaters.flatMap(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
+                                            </select>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
+                                                <input type="date" value={newShowtimeDate} onChange={(e) => setNewShowtimeDate(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-xs" />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Time</label>
+                                                <input type="time" value={newShowtimeTime} onChange={(e) => setNewShowtimeTime(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                            </div>
+                                        </div>
+
+                                        {selectedScreenTiers.length > 0 && (
+                                            <div className="space-y-3 pt-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Tier Pricing</label>
+                                                <div className="space-y-2">
+                                                    {selectedScreenTiers.map(tier => (
+                                                        <div key={tier} className="flex items-center justify-between p-4 rounded-2xl bg-neutral-800/50 border border-white/5">
+                                                            <span className="font-bold text-neutral-300">{tier}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-neutral-500 font-bold">₹</span>
+                                                                <input type="number" min="1" placeholder="0" value={newShowtime.tierPrices[tier] || ''} onChange={(e) => setNewShowtime({ ...newShowtime, tierPrices: { ...newShowtime.tierPrices, [tier]: parseFloat(e.target.value) } })} className="w-20 h-9 px-2 rounded-lg bg-neutral-900 border border-transparent focus:border-emerald-500/50 text-center font-bold text-emerald-400" />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <motion.button
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={handleCreateShowtime}
+                                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                        >
+                                            Create Showtime
+                                        </motion.button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Showtime List */}
+                            <div className="space-y-4">
+                                {showtimes.length === 0 ? (
+                                    <div className="h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
+                                        <Clock className="w-12 h-12 mb-3 opacity-20" />
+                                        <p className="font-medium">No showtimes scheduled</p>
+                                    </div>
+                                ) : (
+                                    showtimes.map((showtime) => (
+                                        <motion.div
+                                            key={showtime.id}
+                                            layout
+                                            className="group relative rounded-3xl bg-neutral-900 border border-white/5 p-6 hover:border-emerald-500/30 hover:bg-neutral-900/80 transition-all"
+                                        >
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex gap-5">
+                                                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center justify-center shrink-0">
+                                                        <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{new Date(showtime.startTime).toLocaleDateString([], { month: 'short' })}</span>
+                                                        <span className="text-lg font-black text-emerald-400">{new Date(showtime.startTime).getDate()}</span>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <h4 className="text-lg font-bold group-hover:text-emerald-400 transition-colors">{showtime.movie?.title}</h4>
+                                                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                                            <p className="text-sm text-neutral-500 flex items-center gap-2">
+                                                                <MapPin className="w-3.5 h-3.5 text-emerald-500/60" />
+                                                                {showtime.screen?.theater?.name} • {showtime.screen?.name}
+                                                            </p>
+                                                            <p className="text-sm text-neutral-400 flex items-center gap-2 font-semibold">
+                                                                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                                                                {new Date(showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1, rotate: 90 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => handleDeleteShowtime(showtime.id)}
+                                                    className="w-10 h-10 rounded-xl bg-red-400/5 border border-red-400/10 flex items-center justify-center text-red-500 hover:bg-red-400/10 transition-colors"
+                                                >
+                                                    <Trash2 className="w-4.5 h-4.5" />
+                                                </motion.button>
+                                            </div>
+                                        </motion.div>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* BOOKINGS TAB */}
+                    {currentTab === 'bookings' && (
+                        <motion.div
+                            key="bookings"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="space-y-3"
+                        >
+                            {bookings.map((booking) => (
+                                <div key={booking.id} className="rounded-2xl bg-neutral-900 border border-neutral-800 p-4">
+                                    <div className="flex items-start justify-between mb-3">
+                                        <div className="flex-1">
+                                            <h4 className="font-bold mb-1">{booking.showtime?.movie?.title}</h4>
+                                            <p className="text-xs text-neutral-500 mb-2">{booking.user?.name} ({booking.user?.email})</p>
+                                            <div className="flex flex-wrap gap-2 text-xs">
+                                                <span className="px-2 py-1 rounded-lg bg-neutral-800">{booking.showtime?.screen?.theater?.name}</span>
+                                                <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-400">₹{booking.totalAmount}</span>
+                                                <span className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-400">{booking.status}</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => handleDeleteBooking(booking.id)} className="w-9 h-9 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            {/* Seat Generation Modal */}
+            <AnimatePresence>
+                {genScreenId && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
+                        onClick={() => setGenScreenId(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0.9 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-neutral-900 rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-neutral-800"
+                        >
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-xl font-bold">Generate Seats</h3>
+                                <button onClick={() => setGenScreenId(null)} className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-neutral-400 mb-2">Columns</label>
+                                    <input type="number" value={seatCols} onChange={(e) => setSeatCols(parseInt(e.target.value))} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
+                                </div>
+
+                                <div>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <label className="text-sm font-medium text-neutral-400">Tiers</label>
+                                        <button onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 150 }])} className="text-sm text-emerald-400 font-semibold">+ Add Tier</button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {seatTiers.map((tier, idx) => (
+                                            <div key={idx} className="flex gap-2">
+                                                <input type="text" value={tier.name} onChange={e => { const t = [...seatTiers]; t[idx].name = e.target.value; setSeatTiers(t); }} className="flex-1 h-10 px-3 rounded-xl bg-neutral-800 border border-neutral-700 text-sm" placeholder="Name" />
+                                                <input type="number" value={tier.rows} onChange={e => { const t = [...seatTiers]; t[idx].rows = parseInt(e.target.value); setSeatTiers(t); }} className="w-20 h-10 px-3 rounded-xl bg-neutral-800 border border-neutral-700 text-sm text-center" placeholder="Rows" />
+                                                <input type="number" value={tier.price} onChange={e => { const t = [...seatTiers]; t[idx].price = parseFloat(e.target.value); setSeatTiers(t); }} className="w-20 h-10 px-3 rounded-xl bg-neutral-800 border border-neutral-700 text-sm text-center" placeholder="Price" />
+                                                <button onClick={() => setSeatTiers(seatTiers.filter((_, i) => i !== idx))} className="w-10 h-10 rounded-xl bg-red-500/10 text-red-400 flex items-center justify-center">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
 
-                                {editingShowtime && (
-                                    <div className="fixed inset-0 bg-[#0a0a0b]/80 backdrop-blur-xl flex items-center justify-center p-4 z-50">
-                                        <div className="glass-card p-10 rounded-[40px] max-w-lg w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
-                                            <h2 className="text-xl font-black mb-8 flex items-center gap-3">
-                                                <Calendar className="text-blue-500 w-5 h-5" />
-                                                Edit Showtime
-                                            </h2>
-                                            <form onSubmit={handleUpdateShowtime} className="space-y-6">
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Feature</label>
-                                                    <select
-                                                        value={editingShowtime.movieId}
-                                                        onChange={e => setEditingShowtime({ ...editingShowtime, movieId: parseInt(e.target.value) })}
-                                                        className="premium-input w-full appearance-none"
-                                                    >
-                                                        {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Assigned Screen</label>
-                                                    <select
-                                                        value={editingShowtime.screenId}
-                                                        onChange={e => setEditingShowtime({ ...editingShowtime, screenId: parseInt(e.target.value) })}
-                                                        className="premium-input w-full appearance-none"
-                                                    >
-                                                        {theaters.map(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
-                                                    </select>
-                                                </div>
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Start Time</label>
-                                                    <input
-                                                        type="datetime-local"
-                                                        value={toLocalDateString(editingShowtime.startTime)}
-                                                        onChange={e => setEditingShowtime({ ...editingShowtime, startTime: e.target.value })}
-                                                        className="premium-input w-full"
-                                                    />
-                                                </div>
-
-                                                {editingScreenTiers.length > 0 && (
-                                                    <div className="space-y-4 pt-2">
-                                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tier Pricing (₹)</label>
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                            {editingScreenTiers.map((tier: string) => (
-                                                                <div key={tier} className="relative group">
-                                                                    <div className="absolute -top-2 left-3 bg-[#0a0a0b] px-2 text-[8px] font-black text-blue-500 uppercase tracking-widest z-10 transition-all group-focus-within:text-white">
-                                                                        {tier}
-                                                                    </div>
-                                                                    <div className="relative">
-                                                                        <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-600" />
-                                                                        <input
-                                                                            type="number"
-                                                                            value={(editingShowtime.tierPrices && editingShowtime.tierPrices[tier]) || ''}
-                                                                            onChange={e => setEditingShowtime({
-                                                                                ...editingShowtime,
-                                                                                tierPrices: { ...(editingShowtime.tierPrices || {}), [tier]: parseFloat(e.target.value) || 0 }
-                                                                            })}
-                                                                            className="premium-input pl-10 w-full"
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                <div className="flex gap-4 pt-4">
-                                                    <button className="neon-button flex-1">Apply Changes</button>
-                                                    <button type="button" onClick={() => setEditingShowtime(null)} className="flex-1 bg-white/5 hover:bg-white/10 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">Cancel</button>
-                                                </div>
-                                            </form>
-                                        </div>
-                                    </div>
-                                )}
+                                <button onClick={() => handleGenerateSeats(genScreenId)} className="w-full h-12 rounded-xl bg-emerald-500 text-white font-semibold">
+                                    Generate Seats
+                                </button>
                             </div>
-                        )}
-
-                        {currentTab === 'bookings' && (
-                            <div className="space-y-8">
-                                <div className="grid grid-cols-1 gap-4">
-                                    {bookings.map(booking => (
-                                        <div key={booking.id} className="glass-card p-6 rounded-[32px] hover:border-blue-500/30 transition-all flex items-center justify-between group">
-                                            <div className="flex items-center gap-6">
-                                                <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 font-black text-xl">
-                                                    #{booking.id}
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-xl font-black mb-1">{booking.showtime?.movie?.title}</h3>
-                                                    <div className="flex items-center gap-4 text-gray-400 text-sm font-bold">
-                                                        <span className="flex items-center gap-2"><MapPin className="w-4 h-4" /> {booking.showtime?.screen?.theater?.name} • {booking.showtime?.screen?.name}</span>
-                                                        <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> {new Date(booking.showtime?.startTime).toLocaleString()}</span>
-                                                    </div>
-                                                    <div className="mt-2 flex items-center gap-4 text-sm">
-                                                        <span className="bg-white/5 px-3 py-1 rounded-lg text-gray-400 font-bold">User: {booking.user?.name} ({booking.user?.email})</span>
-                                                        <span className="bg-green-500/10 text-green-500 px-3 py-1 rounded-lg font-bold">₹{booking.totalAmount}</span>
-                                                        <span className="bg-blue-500/10 text-blue-500 px-3 py-1 rounded-lg font-bold capitalize">{booking.status}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => handleDeleteBooking(booking.id)}
-                                                className="w-12 h-12 rounded-2xl bg-red-900/20 border border-red-900/30 flex items-center justify-center hover:bg-red-600 hover:border-red-500 transition-all opacity-0 group-hover:opacity-100"
-                                            >
-                                                <span className="text-lg">×</span>
-                                            </button>
-                                        </div>
-                                    ))}
-                                    {bookings.length === 0 && (
-                                        <div className="text-center py-20 opacity-30">
-                                            <p className="text-2xl font-black">No bookings found</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </motion.div>
-                </AnimatePresence>
-            </main>
-
-            {/* Layout Configuration Modal */}
-            <AnimatePresence>
-                {
-                    genScreenId && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-[#0a0a0b]/80 backdrop-blur-xl flex items-center justify-center p-4 z-[90]"
-                        >
-                            <motion.div
-                                initial={{ scale: 0.9, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                exit={{ scale: 0.9, opacity: 0 }}
-                                className="glass-card p-4 sm:p-12 rounded-[32px] sm:rounded-[48px] max-w-xl w-full mx-4 overflow-y-auto max-h-[90vh]"
-                            >
-                                <div className="text-center mb-8">
-                                    <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600/10 rounded-2xl border border-blue-500/20 mb-4 font-black text-blue-500">S</div>
-                                    <h3 className="text-2xl font-black tracking-tight leading-none mb-2 text-white">Spatial Architect</h3>
-                                    <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Multi-Tier Grid Engine</p>
-                                </div>
-
-                                <div className="space-y-8">
-                                    <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Columns</label>
-                                        <input type="number" value={seatCols} onChange={(e) => setSeatCols(parseInt(e.target.value))} className="premium-input w-24 text-center !bg-gray-900" />
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest ml-1">Tier Definitions</label>
-                                            <button
-                                                onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 150 }])}
-                                                className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:text-blue-400"
-                                            >
-                                                + Add Tier
-                                            </button>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            {seatTiers.map((tier, idx) => (
-                                                <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-white/5 p-4 rounded-2xl border border-white/10 group">
-                                                    <div className="col-span-4">
-                                                        <input
-                                                            type="text"
-                                                            value={tier.name}
-                                                            placeholder="Tier Name"
-                                                            onChange={e => {
-                                                                const newTiers = [...seatTiers];
-                                                                newTiers[idx].name = e.target.value;
-                                                                setSeatTiers(newTiers);
-                                                            }}
-                                                            className="premium-input w-full !text-sm !h-10"
-                                                        />
-                                                    </div>
-                                                    <div className="col-span-3">
-                                                        <input
-                                                            type="number"
-                                                            value={tier.rows}
-                                                            placeholder="Rows"
-                                                            onChange={e => {
-                                                                const newTiers = [...seatTiers];
-                                                                newTiers[idx].rows = parseInt(e.target.value);
-                                                                setSeatTiers(newTiers);
-                                                            }}
-                                                            className="premium-input w-full !text-sm !h-10 text-center"
-                                                        />
-                                                    </div>
-                                                    <div className="col-span-3">
-                                                        <input
-                                                            type="number"
-                                                            value={tier.price}
-                                                            placeholder="Price"
-                                                            onChange={e => {
-                                                                const newTiers = [...seatTiers];
-                                                                newTiers[idx].price = parseFloat(e.target.value);
-                                                                setSeatTiers(newTiers);
-                                                            }}
-                                                            className="premium-input w-full !text-sm !h-10 text-center"
-                                                        />
-                                                    </div>
-                                                    <div className="col-span-2 flex justify-end">
-                                                        <button
-                                                            onClick={() => setSeatTiers(seatTiers.filter((_, i) => i !== idx))}
-                                                            className="w-8 h-8 rounded-lg hover:bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all font-black"
-                                                        >
-                                                            ×
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className="p-3 text-[9px] text-gray-500 font-bold uppercase tracking-widest text-center">
-                                            Total Rows: {seatTiers.reduce((acc, t) => acc + (t.rows || 0), 0)} (A-{String.fromCharCode(64 + seatTiers.reduce((acc, t) => acc + (t.rows || 0), 0))})
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-3 pt-4 border-t border-white/5">
-                                        <button onClick={() => handleGenerateSeats(genScreenId!)} className="neon-button w-full">
-                                            {hasExistingSeats ? 'Update Layout (Overwrite)' : 'Execute Generation'}
-                                        </button>
-                                        <button onClick={() => setGenScreenId(null)} className="w-full text-gray-600 text-xs font-black uppercase tracking-widest hover:text-white transition-colors">Abort Node Setup</button>
-                                    </div>
-                                </div>
-                            </motion.div>
                         </motion.div>
-                    )
-                }
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Edit Movie Modal */}
+            <AnimatePresence>
+                {editingMovie && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
+                        onClick={() => setEditingMovie(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0.9 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-neutral-900 rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-neutral-800"
+                        >
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-xl font-bold">Edit Movie</h3>
+                                <button onClick={() => setEditingMovie(null)} className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="space-y-3">
+                                <input type="text" value={editingMovie.title} onChange={(e) => setEditingMovie({ ...editingMovie, title: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
+                                <textarea value={editingMovie.description} onChange={(e) => setEditingMovie({ ...editingMovie, description: e.target.value })} className="w-full h-24 px-4 py-3 rounded-xl bg-neutral-800 border border-neutral-700 resize-none" />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="text" value={editingMovie.genre} onChange={(e) => setEditingMovie({ ...editingMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Genre" />
+                                    <input type="number" value={editingMovie.duration} onChange={(e) => setEditingMovie({ ...editingMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Duration (min)" />
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <input type="text" value={editingMovie.language || ''} onChange={(e) => setEditingMovie({ ...editingMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Language" />
+                                    <input type="text" value={editingMovie.audio || ''} onChange={(e) => setEditingMovie({ ...editingMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Audio" />
+                                    <input type="text" value={editingMovie.format || ''} onChange={(e) => setEditingMovie({ ...editingMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Format" />
+                                </div>
+                                <input type="text" value={editingMovie.rating || ''} onChange={(e) => setEditingMovie({ ...editingMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Rating (e.g., 8.5)" />
+                                <input type="date" value={editingMovie.releaseDate || ''} onChange={(e) => setEditingMovie({ ...editingMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400" />
+
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
+                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                            Upload
+                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', true)} />
+                                        </label>
+                                    </div>
+                                    <input type="text" value={editingMovie.posterUrl} onChange={(e) => setEditingMovie({ ...editingMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
+                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                            Upload
+                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', true)} />
+                                        </label>
+                                    </div>
+                                    <input type="text" value={editingMovie.bannerUrl || ''} onChange={(e) => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
+                                </div>
+                                <button onClick={handleUpdateMovie} className="w-full h-12 rounded-xl bg-emerald-500 text-white font-semibold">Update Movie</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
             </AnimatePresence>
         </div>
     );

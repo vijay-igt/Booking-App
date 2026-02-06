@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { motion } from 'framer-motion';
-import { ChevronLeft, MapPin, Monitor } from 'lucide-react';
+import { ChevronLeft, MapPin, Monitor, ChevronRight } from 'lucide-react';
 
 interface Screen {
     id: number;
@@ -39,75 +39,90 @@ const TheaterScreens: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+                <div className="relative w-16 h-16">
+                    <div className="absolute inset-0 rounded-full border-4 border-emerald-500/20"></div>
+                    <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-500 animate-spin"></div>
+                </div>
             </div>
         );
     }
 
-    if (!theater) return (
-        <div className="min-h-screen bg-[#0a0a0b] text-white flex flex-col items-center justify-center p-8">
-            <p className="text-gray-500 mb-6">Theater not found.</p>
-            <button onClick={() => navigate(-1)} className="neon-button px-8">Go Back</button>
-        </div>
-    );
+    if (!theater) {
+        return (
+            <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center px-5">
+                <div className="w-20 h-20 rounded-full bg-neutral-900 flex items-center justify-center mb-4">
+                    <MapPin className="w-10 h-10 text-neutral-700" />
+                </div>
+                <h3 className="font-semibold mb-2">Theater not found</h3>
+                <p className="text-sm text-neutral-500 mb-6">This theater doesn't exist or has been removed</p>
+                <button
+                    onClick={() => navigate(-1)}
+                    className="px-6 py-3 rounded-full bg-emerald-500 text-white font-semibold"
+                >
+                    Go Back
+                </button>
+            </div>
+        );
+    }
 
     return (
-        <div className="bg-[#0a0a0b] min-h-screen text-white p-6 pb-20 overflow-x-hidden">
-            {/* Background Glows */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full -mr-48 -mt-48 pointer-events-none"></div>
-
-            <header className="max-w-xl mx-auto mb-12 flex items-center gap-6 pt-6">
-                <motion.button
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => navigate(-1)}
-                    className="w-12 h-12 glass-card rounded-full flex items-center justify-center hover:bg-white/10 transition-colors shrink-0"
-                >
-                    <ChevronLeft className="w-6 h-6" />
-                </motion.button>
-                <div>
-                    <h1 className="text-3xl font-black tracking-tight leading-none mb-2">{theater.name}</h1>
-                    <div className="flex items-center gap-2 text-gray-500">
-                        <MapPin className="w-3 h-3 text-blue-500" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">{theater.location}</span>
+        <div className="min-h-screen bg-neutral-950 text-white pb-8">
+            {/* Header */}
+            <div className="sticky top-0 z-40 bg-neutral-950/95 backdrop-blur-xl border-b border-neutral-800">
+                <div className="px-5 py-4 flex items-center gap-3">
+                    <motion.button
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => navigate(-1)}
+                        className="w-10 h-10 rounded-full bg-neutral-900 flex items-center justify-center"
+                    >
+                        <ChevronLeft className="w-5 h-5" />
+                    </motion.button>
+                    <div className="flex-1 min-w-0">
+                        <h1 className="font-bold truncate">{theater.name}</h1>
+                        <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                            <MapPin className="w-3 h-3 text-emerald-400" />
+                            <span className="truncate">{theater.location}</span>
+                        </div>
                     </div>
                 </div>
-            </header>
+            </div>
 
-            <section className="max-w-xl mx-auto space-y-6">
-                <h2 className="text-xs font-black text-gray-500 uppercase tracking-[0.2em] mb-4">Select Experience Room</h2>
+            {/* Content */}
+            <div className="px-5 pt-6">
+                <h2 className="text-sm font-bold text-neutral-400 uppercase tracking-wide mb-4">
+                    Available Screens
+                </h2>
+
                 {theater.screens && theater.screens.length > 0 ? (
-                    <div className="grid gap-4">
+                    <div className="space-y-3">
                         {theater.screens.map((screen, idx) => (
-                            <motion.div
+                            <motion.button
                                 key={screen.id}
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: idx * 0.1 }}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.05 }}
                                 onClick={() => navigate(`/booking/${screen.id}`)}
-                                className="glass-card p-6 rounded-[32px] border border-white/5 hover:border-blue-500/50 hover:bg-blue-600/5 transition-all cursor-pointer flex justify-between items-center group"
+                                className="w-full p-4 rounded-2xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition-all flex items-center gap-4 group"
                             >
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
-                                        <Monitor className="w-5 h-5" />
-                                    </div>
-                                    <div>
-                                        <span className="text-lg font-black text-white">{screen.name}</span>
-                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">4K LASER PROJECTION</p>
-                                    </div>
+                                <div className="w-12 h-12 rounded-xl bg-neutral-800 flex items-center justify-center group-hover:bg-emerald-500/10 transition-all">
+                                    <Monitor className="w-6 h-6 text-neutral-400 group-hover:text-emerald-400 transition-colors" />
                                 </div>
-                                <span className="bg-blue-600/10 text-blue-500 px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
-                                    Book
-                                </span>
-                            </motion.div>
+                                <div className="flex-1 text-left">
+                                    <h3 className="font-semibold mb-0.5">{screen.name}</h3>
+                                    <p className="text-xs text-neutral-500">Select seats for this screen</p>
+                                </div>
+                                <ChevronRight className="w-5 h-5 text-neutral-600 group-hover:text-neutral-400 transition-colors" />
+                            </motion.button>
                         ))}
                     </div>
                 ) : (
-                    <div className="py-20 text-center glass-card rounded-[32px] border-dashed border-white/5 text-gray-500 italic font-medium">
-                        No screens currently initialized for this venue.
+                    <div className="py-20 text-center rounded-2xl bg-neutral-900 border border-dashed border-neutral-800">
+                        <Monitor className="w-12 h-12 text-neutral-700 mx-auto mb-3" />
+                        <p className="text-neutral-500">No screens configured yet</p>
                     </div>
                 )}
-            </section>
+            </div>
         </div>
     );
 };

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { DataType, Sequelize } from 'sequelize-typescript';
 import { Theater } from '../models/Theater';
 import { Screen } from '../models/Screen';
 import { Seat } from '../models/Seat';
@@ -24,6 +25,21 @@ export const getTheaters = async (req: Request, res: Response): Promise<void> =>
         res.json(theaters);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching theaters', error });
+    }
+};
+
+export const deleteTheater = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const id = parseInt(req.params.id as string);
+        const theater = await Theater.findByPk(id);
+        if (!theater) {
+            res.status(404).json({ message: 'Theater not found' });
+            return;
+        }
+        await theater.destroy();
+        res.json({ message: 'Theater deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting theater', error });
     }
 };
 
@@ -90,16 +106,12 @@ export const deleteScreen = async (req: Request, res: Response): Promise<void> =
 
 export const generateSeats = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { screenId, cols, tiers } = req.body;
-        // tiers: [{ name: string, rows: number, price: number }]
+        const { screenId } = req.params;
+        const { columns, tiers, totalRows } = req.body;
+        const cols = columns;
 
         if (!tiers || tiers.length === 0) {
             res.status(400).json({ message: 'At least one tier must be defined.' });
-            return;
-        }
-
-        if (cols <= 0) {
-            res.status(400).json({ message: 'Columns must be greater than 0.' });
             return;
         }
 
@@ -113,33 +125,46 @@ export const generateSeats = async (req: Request, res: Response): Promise<void> 
         const seatsToCreate = [];
         const seatIdsToKeep = new Set<number>();
         let updatedCount = 0;
-        let currentRowIndex = 0;
 
-        // Iterate through tiers
+        let currentRow = 1;
+        // Iterate through tiers using startRow and endRow
         for (const tier of tiers) {
-            for (let r = 0; r < tier.rows; r++) {
-                const rowLabel = characters[currentRowIndex];
+            let start: number, end: number;
+
+            // Handle both old (startRow/endRow) and new (rows) formats
+            if (tier.rows) {
+                start = currentRow;
+                end = currentRow + parseInt(tier.rows) - 1;
+                currentRow = end + 1;
+            } else {
+                start = parseInt(tier.startRow);
+                end = parseInt(tier.endRow);
+            }
+
+            for (let r = start; r <= end; r++) {
+                const rowLabel = characters[r - 1]; // 1-indexed to 0-indexed
+                if (!rowLabel) continue;
+
                 for (let c = 1; c <= cols; c++) {
                     const key = `${rowLabel}-${c}`;
                     const existingSeat = existingSeatMap.get(key);
 
                     if (existingSeat) {
                         updatedCount++;
-                        existingSeat.price = tier.price;
-                        existingSeat.type = tier.name;
+                        existingSeat.price = tier.price || existingSeat.price;
+                        existingSeat.type = tier.tierName || tier.name;
                         await existingSeat.save();
                         seatIdsToKeep.add(existingSeat.id);
                     } else {
                         seatsToCreate.push({
-                            screenId,
+                            screenId: parseInt(String(screenId)),
                             row: rowLabel,
                             number: c,
-                            type: tier.name,
-                            price: tier.price,
+                            type: tier.tierName || tier.name,
+                            price: tier.price || 0,
                         });
                     }
                 }
-                currentRowIndex++;
             }
         }
 
@@ -153,30 +178,12 @@ export const generateSeats = async (req: Request, res: Response): Promise<void> 
 
         let removedCount = 0;
         for (const seat of seatsToRemove) {
-            // Check if this seat has any future/active bookings
-            // For strict safety, we could check DB.
-            // If we just delete, and it has bookings, the DB constraints might error or cascade.
-            // Let's try to delete. If it fails due to FK, we catch it or we can manually check.
-            // Better UX: Only delete if no associated tickets.
-
             const ticketCount = await Ticket.count({ where: { seatId: seat.id } });
             if (ticketCount === 0) {
                 await seat.destroy();
                 removedCount++;
-            } else {
-                console.warn(`Skipping deletion of Seat ${seat.row}${seat.number} (ID: ${seat.id}) because it has active tickets.`);
-                // We keep the seat even if it's "invisible" in the new grid?? 
-                // Or maybe we should allow it to be deleted and cascade? 
-                // User requirement: "rearrange booked seat".
-                // Since this logic MAPPED the seats by Row/Col, if the user shrank the grid, 
-                // e.g. Row 'F' is gone. If 'F5' had a booking, we are here.
-                // We can't "rearrange" it automatically because we don't know where to put it.
-                // Safest bet: Don't delete it, so the record exists, even if UI doesn't render it in the new grid.
-                // Or allows Admin to see "Ghost" seats?
             }
         }
-
-        console.log(`Update complete: Kept/Updated ${seatIdsToKeep.size}, Created ${seatsToCreate.length}, Removed ${removedCount}, Skipped ${seatsToRemove.length - removedCount}`);
 
         res.status(201).json({
             message: `Layout updated successfully.`,
@@ -191,6 +198,34 @@ export const generateSeats = async (req: Request, res: Response): Promise<void> 
     } catch (error) {
         console.error('Error generating seats:', error);
         res.status(500).json({ message: 'Error generating seats', error });
+    }
+};
+
+export const getScreenTiers = async (req: Request, res: Response): Promise<void> => {
+    console.log(`GET /api/admin/screens/${req.params.screenId}/tiers called`);
+    try {
+        const { screenId } = req.params;
+        const parsedId = parseInt(String(screenId));
+
+        if (isNaN(parsedId)) {
+            res.status(400).json({ message: 'Invalid screenId' });
+            return;
+        }
+
+        const seats = await Seat.findAll({
+            where: { screenId: parsedId },
+            attributes: [
+                [Sequelize.fn('DISTINCT', Sequelize.col('type')), 'tierName'],
+            ],
+            raw: true
+        });
+
+        const tiers = (seats as any[]).map(s => s.tierName).filter(Boolean);
+        console.log(`Found tiers for screen ${parsedId}:`, tiers);
+        res.json(tiers);
+    } catch (error) {
+        console.error('Error in getScreenTiers:', error);
+        res.status(500).json({ message: 'Error fetching tiers', error });
     }
 };
 

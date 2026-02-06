@@ -32,37 +32,27 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
   return <>{children}</>;
 };
 
-const HomeRedirect: React.FC = () => {
-  const auth = useContext(AuthContext);
 
-  if (auth?.isLoading) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (!auth?.token) {
-    return <Navigate to="/login" replace />;
-  }
-  return <UserHome />;
-};
 
 const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
-        <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
+        <div className="min-h-screen bg-[#0a0a0b] text-white font-sans">
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/admin" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
-            <Route path="/movie/:id" element={<ProtectedRoute><MovieDetails /></ProtectedRoute>} />
-            <Route path="/booking/:showtimeId" element={<ProtectedRoute><SeatSelection /></ProtectedRoute>} />
+
+            {/* Public Routes */}
+            <Route path="/" element={<UserHome />} />
+            <Route path="/movie/:id" element={<MovieDetails />} />
+            <Route path="/booking/:showtimeId" element={<SeatSelection />} />
+
+            {/* Protected Routes */}
             <Route path="/history" element={<ProtectedRoute><BookingHistory /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-            <Route path="/" element={<HomeRedirect />} />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

@@ -6,6 +6,8 @@ import authRoutes from './routes/authRoutes';
 import adminRoutes from './routes/adminRoutes';
 import bookingRoutes from './routes/bookingRoutes';
 import movieRoutes from './routes/movieRoutes';
+import uploadRoutes from './routes/uploadRoutes';
+import path from 'path';
 
 import { seedAdmin } from './seedAdmin';
 
@@ -26,10 +28,19 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api', movieRoutes);
+app.use('/api/upload', uploadRoutes);
+
+// Serve uploads statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.get('/', (req: Request, res: Response) => {
     res.send('Movie Booking API is running');
