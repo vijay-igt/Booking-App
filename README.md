@@ -8,7 +8,8 @@ CinePass is a high-fidelity, full-stack movie booking application featuring a ci
 - **Dynamic Seat Selection**: Interactive curved-screen theater layout with live pricing in **INR (₹)**.
 - **Admin Dashboard**: Full control over movies, theaters, screens, and showtimes with **direct image upload** for posters.
 - **Robust Security**: JWT-based authentication with persistent login and secure logout.
-- **Digital Wallet**: Realistic perforated ticket designs with QR codes.
+- **Digital Wallet**: Realistic perforated ticket designs with **Save as Image** and **Share** functionality.
+- **Real-time Notifications**: In-app notification center for booking confirmations and system alerts with unread badges and history management.
 - **SPA Optimized**: Handles page reloads seamlessly on Render using `404.html` and `_redirects` fallbacks.
 
 ---
@@ -85,8 +86,9 @@ CinePass is a high-fidelity, full-stack movie booking application featuring a ci
 │   ├── src/
 │   │   ├── controllers/ # Request logic
 │   │   ├── models/      # Sequelize definitions
-│   │   ├── routes/       # API endpoints
-│   │   └── server.ts     # Entry point
+│   │   ├── routes/      # API endpoints
+│   │   ├── middleware/  # Security & Auth
+│   │   └── server.ts    # Entry point
 │   └── tsconfig.json
 ├── frontend/
 │   ├── src/
