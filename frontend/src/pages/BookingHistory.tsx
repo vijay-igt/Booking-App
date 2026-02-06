@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Calendar, Clock, MapPin, Download, Share2, Ticket, QrCode } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import BottomNav from '../components/BottomNav';
+import * as htmlToImage from 'html-to-image';
 
 interface Booking {
     id: number;
@@ -65,6 +66,46 @@ const BookingHistory: React.FC = () => {
     const upcomingBookings = bookings.filter(b => new Date(b.showtime.startTime) >= now);
     const pastBookings = bookings.filter(b => new Date(b.showtime.startTime) < now);
     const displayBookings = activeTab === 'upcoming' ? upcomingBookings : pastBookings;
+
+    const handleShare = async (booking: Booking) => {
+        const shareData = {
+            title: `Movie Ticket: ${booking.showtime.movie.title}`,
+            text: `I just booked tickets for ${booking.showtime.movie.title} at ${booking.showtime.screen.theater.name}! Seats: ${booking.tickets.map(t => `${t.seat.row}${t.seat.number}`).join(', ')}`,
+            url: window.location.href,
+        };
+
+        try {
+            if (navigator.share) {
+                await navigator.share(shareData);
+            } else {
+                await navigator.clipboard.writeText(`${shareData.text} \nCheck it out here: ${shareData.url}`);
+                alert('Share link copied to clipboard!');
+            }
+        } catch (err) {
+            console.error('Error sharing:', err);
+        }
+    };
+
+    const handleDownload = async (bookingId: number) => {
+        const element = document.getElementById(`ticket-${bookingId}`);
+        if (!element) return;
+
+        try {
+            const dataUrl = await htmlToImage.toPng(element, {
+                quality: 1,
+                pixelRatio: 2,
+                backgroundColor: '#0a0a0a',
+            });
+
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `ticket-${bookingId}.png`;
+            link.click();
+        } catch (err) {
+            console.error('Error downloading ticket:', err);
+            alert('Failed to download ticket image.');
+        }
+    };
 
     if (isLoading) return (
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
@@ -151,6 +192,7 @@ const BookingHistory: React.FC = () => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 transition={{ delay: index * 0.05 }}
+                                id={`ticket-${booking.id}`}
                                 className="rounded-3xl bg-neutral-900 border border-neutral-800 overflow-hidden"
                             >
                                 {/* Header with poster */}
@@ -233,10 +275,16 @@ const BookingHistory: React.FC = () => {
                                             <p className="text-xl font-bold text-emerald-400">₹{booking.totalAmount}</p>
                                         </div>
                                         <div className="flex gap-2">
-                                            <button className="w-9 h-9 rounded-full bg-neutral-800 flex items-center justify-center hover:bg-neutral-750">
+                                            <button
+                                                onClick={() => handleDownload(booking.id)}
+                                                className="w-9 h-9 rounded-full bg-neutral-800 flex items-center justify-center hover:bg-neutral-750 transition-colors"
+                                            >
                                                 <Download className="w-4 h-4" />
                                             </button>
-                                            <button className="w-9 h-9 rounded-full bg-neutral-800 flex items-center justify-center hover:bg-neutral-750">
+                                            <button
+                                                onClick={() => handleShare(booking)}
+                                                className="w-9 h-9 rounded-full bg-neutral-800 flex items-center justify-center hover:bg-neutral-750 transition-colors"
+                                            >
                                                 <Share2 className="w-4 h-4" />
                                             </button>
                                         </div>

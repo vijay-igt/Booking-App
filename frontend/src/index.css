@@ -63,3 +63,41 @@
 ::-webkit-scrollbar-thumb {
     @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
 }
+
+/* Screenshot Overrides for html2canvas (fixes oklch error) */
+.screenshot-mode {
+    background-color: #0a0a0a !important;
+}
+
+.screenshot-mode .bg-neutral-900 {
+    background-color: #171717 !important;
+}
+
+.screenshot-mode .bg-neutral-800 {
+    background-color: #262626 !important;
+}
+
+.screenshot-mode .text-emerald-400 {
+    color: #34d399 !important;
+}
+
+.screenshot-mode .bg-emerald-500 {
+    background-color: #10b981 !important;
+}
+
+.screenshot-mode .text-neutral-500 {
+    color: #737373 !important;
+}
+
+.screenshot-mode .border-neutral-800 {
+    border-color: #262626 !important;
+}
+
+.screenshot-mode .text-neutral-400 {
+    color: #a3a3a3 !important;
+}
+
+.screenshot-mode .blur-sm {
+    filter: none !important;
+    /* Blur can also cause issues with some canvas renderers */
+}
