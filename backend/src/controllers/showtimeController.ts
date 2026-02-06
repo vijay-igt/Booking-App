@@ -30,6 +30,25 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
         const newStart = new Date(startTime);
         const newEnd = new Date(endTime);
 
+        // Fetch movie to check release date
+        const movie = await Movie.findByPk(movieId);
+        if (!movie) {
+            res.status(404).json({ message: 'Movie not found.' });
+            return;
+        }
+
+        if (movie.releaseDate) {
+            const releaseDate = new Date(movie.releaseDate);
+            // Compare only dates (ignoring time) or full timestamp? 
+            // Usually, movies release at 00:00 of the release date.
+            if (newStart < releaseDate) {
+                res.status(400).json({
+                    message: `Showtime cannot be scheduled before the movie release date (${movie.releaseDate}).`
+                });
+                return;
+            }
+        }
+
         // Check if start time is in the past
         if (newStart < new Date()) {
             res.status(400).json({ message: 'Cannot schedule showtime in the past.' });
@@ -182,6 +201,18 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
             if (targetStart < new Date()) {
                 res.status(400).json({ message: 'Cannot reschedule showtime to the past.' });
                 return;
+            }
+
+            // Check against movie release date
+            const movie = await Movie.findByPk(movieId || showtime.movieId);
+            if (movie && movie.releaseDate) {
+                const releaseDate = new Date(movie.releaseDate);
+                if (targetStart < releaseDate) {
+                    res.status(400).json({
+                        message: `Showtime cannot be scheduled before the movie release date (${movie.releaseDate}).`
+                    });
+                    return;
+                }
             }
 
             if (targetEnd <= targetStart) {
