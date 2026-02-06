@@ -17,7 +17,7 @@ interface Movie {
     rating: string;
 }
 
-const CATEGORIES = ["All", "Action", "Comedy", "Sci-Fi", "Romance", "Thriller", "Drama"];
+const CATEGORIES = ["All", "Action", "Comedy", "Sci-Fi", "Romantic", "Thriller", "Drama"];
 
 const UserHome: React.FC = () => {
     const [movies, setMovies] = useState<Movie[]>([]);
