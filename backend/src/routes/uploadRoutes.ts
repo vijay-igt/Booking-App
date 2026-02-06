@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { upload } from '../utils/upload';
 
 const router = Router();
 
-router.post('/', upload.single('image'), (req, res) => {
+router.post('/', upload.single('image'), (req: Request, res: Response) => {
     try {
         if (!req.file) {
             res.status(400).json({ message: 'No file uploaded' });
