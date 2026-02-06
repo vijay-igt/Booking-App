@@ -5,7 +5,8 @@ const router = Router();
 
 router.post('/', upload.single('image'), (req: Request, res: Response) => {
     try {
-        if (!req.file) {
+        const file = (req as any).file;
+        if (!file) {
             res.status(400).json({ message: 'No file uploaded' });
             return;
         }
@@ -14,7 +15,7 @@ router.post('/', upload.single('image'), (req: Request, res: Response) => {
         // Assuming the server serves 'uploads' directory at /uploads
         const protocol = req.protocol;
         const host = req.get('host');
-        const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+        const fileUrl = `${protocol}://${host}/uploads/${file.filename}`;
 
         res.json({ url: fileUrl });
     } catch (error) {
