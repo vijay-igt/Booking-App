@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Bell, ChevronRight, Clock, Sparkles, User, LogIn } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
+import NotificationCenter from '../components/NotificationCenter';
 import { AuthContext } from '../context/AuthContext';
 
 interface Movie {
@@ -25,6 +26,8 @@ const UserHome: React.FC = () => {
     const [selectedCategory, setSelectedCategory] = useState("All");
     const [featuredIndex, setFeaturedIndex] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [isNotifOpen, setIsNotifOpen] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
     const auth = useContext(AuthContext);
 
@@ -41,6 +44,26 @@ const UserHome: React.FC = () => {
         };
         fetchMovies();
     }, []);
+
+    const fetchNotifications = async () => {
+        if (!auth?.user) return;
+        try {
+            const response = await api.get('/notifications');
+            const unread = response.data.filter((n: any) => !n.isRead).length;
+            setUnreadCount(unread);
+        } catch (error) {
+            console.error('Error fetching unread count:', error);
+        }
+    };
+
+    useEffect(() => {
+        if (auth?.user) {
+            fetchNotifications();
+            // Poll for notifications every 30 seconds
+            const interval = setInterval(fetchNotifications, 30000);
+            return () => clearInterval(interval);
+        }
+    }, [auth?.user]);
 
     useEffect(() => {
         if (movies.length > 0) {
@@ -123,13 +146,24 @@ const UserHome: React.FC = () => {
 
                         <motion.button
                             whileTap={{ scale: 0.9 }}
+                            onClick={() => setIsNotifOpen(true)}
                             className="relative w-11 h-11 rounded-full bg-neutral-900 flex items-center justify-center border border-neutral-800"
                         >
                             <Bell className="w-5 h-5 text-neutral-400" />
-                            <span className="absolute top-2 right-2 w-2 h-2 bg-emerald-500 rounded-full"></span>
+                            {unreadCount > 0 && (
+                                <span className="absolute top-2 right-2 w-2 h-2 bg-emerald-500 rounded-full border-2 border-neutral-950"></span>
+                            )}
                         </motion.button>
                     </div>
                 </div>
+
+                <NotificationCenter
+                    isOpen={isNotifOpen}
+                    onClose={() => {
+                        setIsNotifOpen(false);
+                        fetchNotifications(); // Refresh count when closing
+                    }}
+                />
 
                 {/* Search Bar */}
                 <motion.div

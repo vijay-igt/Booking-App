@@ -7,6 +7,7 @@ import { Movie } from '../models/Movie';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
 import { sequelize } from '../config/database';
+import { Notification } from '../models/Notification';
 
 export const createBooking = async (req: Request, res: Response): Promise<void> => {
     const transaction = await sequelize.transaction();
@@ -47,6 +48,29 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
         await Ticket.bulkCreate(tickets, { transaction });
 
         await transaction.commit();
+
+        // Create success notification for user
+        try {
+            const showtime = await Showtime.findByPk(showtimeId, {
+                include: [{ model: Movie }]
+            });
+
+            const movieTitle = showtime?.movie?.title || 'Unknown Movie';
+            const startTime = showtime ? new Date(showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const startDate = showtime ? new Date(showtime.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+
+            await Notification.create({
+                userId,
+                title: 'Booking Confirmed!',
+                message: `Your booking for ${movieTitle} on ${startDate} at ${startTime} was successful. Check your history for details.`,
+                type: 'success',
+                isRead: false
+            });
+        } catch (notifError) {
+            console.error('Failed to create notification:', notifError);
+            // Don't fail the booking if notification fails
+        }
+
         res.status(201).json(booking);
     } catch (error) {
         console.error('Create Booking Failed:', error);

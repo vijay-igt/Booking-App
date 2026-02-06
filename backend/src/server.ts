@@ -7,6 +7,7 @@ import adminRoutes from './routes/adminRoutes';
 import bookingRoutes from './routes/bookingRoutes';
 import movieRoutes from './routes/movieRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import notificationRoutes from './routes/notificationRoutes';
 import path from 'path';
 
 import { seedAdmin } from './seedAdmin';
@@ -38,6 +39,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api', movieRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Serve uploads statically
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

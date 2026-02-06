@@ -8,6 +8,7 @@ import { Booking } from '../models/Booking';
 import { Movie } from '../models/Movie';
 import { Showtime } from '../models/Showtime';
 import { Ticket } from '../models/Ticket';
+import { Notification } from '../models/Notification';
 
 dotenv.config();
 
@@ -16,7 +17,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 export const sequelize = process.env.DATABASE_URL
     ? new Sequelize(process.env.DATABASE_URL, {
         dialect: 'postgres',
-        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket],
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification],
         logging: false,
         dialectOptions: isProduction ? {
             ssl: {
@@ -32,6 +33,6 @@ export const sequelize = process.env.DATABASE_URL
         password: process.env.DB_PASSWORD || 'postgres',
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT || '5432'),
-        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket],
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification],
         logging: false,
     });

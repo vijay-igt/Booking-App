@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, Star, Calendar, MapPin, Users } from 'lucide-react';
+import { ChevronLeft, Star, Calendar, MapPin, Users, Bell } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import NotificationCenter from '../components/NotificationCenter';
 
 interface Movie {
     id: number;
@@ -38,7 +40,10 @@ const MovieDetails: React.FC = () => {
     const [movie, setMovie] = useState<Movie | null>(null);
     const [selectedShowtime, setSelectedShowtime] = useState<number | null>(null);
     const [expandedDay, setExpandedDay] = useState<string | null>(null);
+    const [isNotifOpen, setIsNotifOpen] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
+    const auth = React.useContext(AuthContext);
 
     useEffect(() => {
         const fetchMovie = async () => {
@@ -57,6 +62,23 @@ const MovieDetails: React.FC = () => {
         };
         fetchMovie();
     }, [id]);
+
+    const fetchNotifications = async () => {
+        if (!auth?.user) return;
+        try {
+            const response = await api.get('/notifications');
+            const unread = response.data.filter((n: any) => !n.isRead).length;
+            setUnreadCount(unread);
+        } catch (error) {
+            console.error('Error fetching unread count:', error);
+        }
+    };
+
+    useEffect(() => {
+        if (auth?.user) {
+            fetchNotifications();
+        }
+    }, [auth?.user]);
 
     if (!movie) return (
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
@@ -103,16 +125,26 @@ const MovieDetails: React.FC = () => {
                     <div className="absolute inset-0 bg-gradient-to-b from-neutral-950/60 via-neutral-950/80 to-neutral-950"></div>
                 </div>
 
-                {/* Back button */}
-                <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => navigate(-1)}
-                    className="absolute top-12 left-5 z-10 w-10 h-10 rounded-full bg-neutral-950/60 backdrop-blur-md border border-white/10 flex items-center justify-center"
-                >
-                    <ChevronLeft className="w-5 h-5" />
-                </motion.button>
+                <div className="absolute top-12 left-5 right-5 z-20 flex items-center justify-between">
+                    <motion.button
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => navigate(-1)}
+                        className="w-10 h-10 rounded-full bg-neutral-950/60 backdrop-blur-md border border-white/10 flex items-center justify-center"
+                    >
+                        <ChevronLeft className="w-5 h-5" />
+                    </motion.button>
+
+                    <motion.button
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => setIsNotifOpen(true)}
+                        className="w-10 h-10 rounded-full bg-neutral-950/60 backdrop-blur-md border border-white/10 flex items-center justify-center relative"
+                    >
+                        <Bell className="w-5 h-5 text-white" />
+                        {unreadCount > 0 && (
+                            <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-emerald-500 rounded-full border border-neutral-950"></span>
+                        )}
+                    </motion.button>
+                </div>
 
                 {/* Movie info overlay */}
                 <div className="absolute bottom-0 left-0 right-0 p-5">
@@ -270,6 +302,14 @@ const MovieDetails: React.FC = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <NotificationCenter
+                isOpen={isNotifOpen}
+                onClose={() => {
+                    setIsNotifOpen(false);
+                    fetchNotifications();
+                }}
+            />
         </div>
     );
 };
