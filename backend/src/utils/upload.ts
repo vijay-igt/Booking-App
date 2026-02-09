@@ -14,15 +14,21 @@ const cloudinaryConfig = {
     secure: true
 };
 
-console.log('Initializing Cloudinary with:', {
-    cloud_name: cloudinaryConfig.cloud_name,
+// Also log the URL presence if individual keys are missing
+if (!cloudinaryConfig.cloud_name) {
+    console.log('CLOUDINARY_CLOUD_NAME is missing, checking for CLOUDINARY_URL...');
+    if (process.env.CLOUDINARY_URL) {
+        console.log('CLOUDINARY_URL is present.');
+    } else {
+        console.log('CLOUDINARY_URL is also missing.');
+    }
+}
+
+console.log('Cloudinary Init State:', {
+    cloud_name: cloudinaryConfig.cloud_name || 'MISSING',
     api_key: !!cloudinaryConfig.api_key ? 'PRESENT' : 'MISSING',
     api_secret: !!cloudinaryConfig.api_secret ? 'PRESENT' : 'MISSING'
 });
-
-if (!cloudinaryConfig.cloud_name || !cloudinaryConfig.api_key || !cloudinaryConfig.api_secret) {
-    console.error('CRITICAL: Cloudinary environment variables are missing!');
-}
 
 cloudinary.config(cloudinaryConfig);
 
@@ -32,8 +38,6 @@ const storage = new CloudinaryStorage({
     params: {
         folder: 'booking-app-posters',
         allowed_formats: ['jpg', 'png', 'jpeg'],
-        // Remove public_id for now to let Cloudinary handle it, or use a simple string
-        // public_id: (req: any, file: any) => Date.now() + '-' + file.originalname,
     } as any,
 });
 

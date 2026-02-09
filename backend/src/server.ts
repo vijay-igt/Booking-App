@@ -1,6 +1,8 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { sequelize } from './config/database';
 import authRoutes from './routes/authRoutes';
 import adminRoutes from './routes/adminRoutes';
@@ -11,8 +13,6 @@ import notificationRoutes from './routes/notificationRoutes';
 import path from 'path';
 
 import { seedAdmin } from './seedAdmin';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
