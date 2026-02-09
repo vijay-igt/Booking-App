@@ -15,7 +15,9 @@ import {
     Trash2,
     Monitor,
     X,
-    Star
+    Star,
+    Users,
+    Bell
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -84,12 +86,21 @@ interface Booking {
     };
 }
 
+interface User {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+    createdAt: string;
+}
+
 const AdminDashboard: React.FC = () => {
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings'>('theaters');
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users'>('theaters');
     const [theaters, setTheaters] = useState<Theater[]>([]);
     const [movies, setMovies] = useState<Movie[]>([]);
     const [showtimes, setShowtimes] = useState<Showtime[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
     const auth = useContext(AuthContext);
     const navigate = useNavigate();
 
@@ -110,6 +121,10 @@ const AdminDashboard: React.FC = () => {
         { name: 'Classic', rows: 5, price: 150 }
     ]);
     const [seatCols, setSeatCols] = useState(10);
+
+    const [notifUserId, setNotifUserId] = useState<number | null>(null);
+    const [notifForm, setNotifForm] = useState({ title: '', message: '', type: 'info' });
+    const [isSendingNotif, setIsSendingNotif] = useState(false);
 
     const fetchBookings = useCallback(async () => {
         try {
@@ -139,12 +154,20 @@ const AdminDashboard: React.FC = () => {
         } catch (error) { console.error(error); }
     }, []);
 
+    const fetchUsers = useCallback(async () => {
+        try {
+            const response = await api.get('/admin/users');
+            setUsers(response.data);
+        } catch (error) { console.error(error); }
+    }, []);
+
     useEffect(() => {
         fetchTheaters();
         fetchMovies();
         fetchShowtimes();
         fetchBookings();
-    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings]);
+        fetchUsers();
+    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers]);
 
     useEffect(() => {
         if (!genScreenId) return; // Don't fetch if modal is closed
@@ -369,6 +392,27 @@ const AdminDashboard: React.FC = () => {
         } catch (error) { console.error(error); }
     };
 
+    const handleSendNotification = async () => {
+        if (!notifUserId || !notifForm.title || !notifForm.message) return;
+        setIsSendingNotif(true);
+        try {
+            const endpoint = notifUserId === -1 ? '/admin/broadcast' : '/admin/notifications';
+            const payload = notifUserId === -1
+                ? { ...notifForm }
+                : { userId: notifUserId, ...notifForm };
+
+            await api.post(endpoint, payload);
+            alert(notifUserId === -1 ? 'Broadcast sent successfully!' : 'Notification sent successfully!');
+            setNotifUserId(null);
+            setNotifForm({ title: '', message: '', type: 'info' });
+        } catch (error) {
+            console.error(error);
+            alert('Failed to send notification');
+        } finally {
+            setIsSendingNotif(false);
+        }
+    };
+
     const handleScreenSelect = async (screenId: number) => {
         try {
             const response = await api.get(`/admin/screens/${screenId}/tiers`);
@@ -389,7 +433,8 @@ const AdminDashboard: React.FC = () => {
         { id: 'theaters' as const, label: 'Theaters', icon: LayoutDashboard },
         { id: 'movies' as const, label: 'Movies', icon: Film },
         { id: 'showtimes' as const, label: 'Showtimes', icon: Calendar },
-        { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon }
+        { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon },
+        { id: 'users' as const, label: 'Users', icon: Users }
     ];
 
     return (
@@ -980,6 +1025,52 @@ const AdminDashboard: React.FC = () => {
                             ))}
                         </motion.div>
                     )}
+
+                    {currentTab === 'users' && (
+                        <motion.div
+                            key="users"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="space-y-4"
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-2xl font-black tracking-tighter uppercase italic">User Management</h3>
+                                <button
+                                    onClick={() => setNotifUserId(-1)}
+                                    className="px-6 h-12 rounded-2xl bg-amber-500 text-black font-black uppercase tracking-widest flex items-center gap-3 hover:bg-amber-400 transition-all shadow-lg shadow-amber-500/20"
+                                >
+                                    <Bell className="w-5 h-5" />
+                                    Notify All
+                                </button>
+                            </div>
+                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {users.map((user) => (
+                                    <div key={user.id} className="rounded-3xl bg-neutral-900 border border-white/5 p-6 hover:border-emerald-500/20 transition-all group">
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                                <Users className="w-6 h-6" />
+                                            </div>
+                                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest ${user.role === 'admin' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
+                                                {user.role}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1 mb-6">
+                                            <h4 className="font-bold text-lg group-hover:text-emerald-400 transition-colors uppercase tracking-tight">{user.name}</h4>
+                                            <p className="text-sm text-neutral-500 truncate">{user.email}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => setNotifUserId(user.id)}
+                                            className="w-full h-11 rounded-xl bg-neutral-800 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-center gap-2 group/btn"
+                                        >
+                                            <Bell className="w-4 h-4 group-hover/btn:animate-bounce" />
+                                            <span className="text-xs font-bold">Notify User</span>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
                 </AnimatePresence>
             </div>
 
@@ -1100,6 +1191,101 @@ const AdminDashboard: React.FC = () => {
                                     <input type="text" value={editingMovie.bannerUrl || ''} onChange={(e) => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
                                 </div>
                                 <button onClick={handleUpdateMovie} className="w-full h-12 rounded-xl bg-emerald-500 text-white font-semibold">Update Movie</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Admin Notification Modal */}
+            <AnimatePresence>
+                {notifUserId && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
+                        onClick={() => setNotifUserId(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.9, y: 20 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-neutral-900 rounded-[2.5rem] p-8 max-w-md w-full border border-white/5 shadow-2xl"
+                        >
+                            <div className="flex items-center justify-between mb-8">
+                                <div className="space-y-1">
+                                    <h3 className="text-2xl font-black tracking-tighter uppercase italic">
+                                        {notifUserId === -1 ? 'Broadcast Message' : 'Send Notification'}
+                                    </h3>
+                                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider">
+                                        {notifUserId === -1 ? 'Alerting all users' : 'Targeted User Alert'}
+                                    </p>
+                                </div>
+                                <button onClick={() => setNotifUserId(null)} className="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center hover:bg-neutral-700 transition-colors">
+                                    <X className="w-5 h-5 text-neutral-400" />
+                                </button>
+                            </div>
+
+                            <div className="space-y-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Alert Type</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {['info', 'success', 'warning'].map((type) => (
+                                            <button
+                                                key={type}
+                                                onClick={() => setNotifForm({ ...notifForm, type })}
+                                                className={`h-11 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${notifForm.type === type
+                                                    ? type === 'info' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                                                        : type === 'success' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                                            : 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+                                                    : 'bg-neutral-800 text-neutral-500 hover:bg-neutral-700'
+                                                    }`}
+                                            >
+                                                {type}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Title</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Headline..."
+                                        value={notifForm.title}
+                                        onChange={(e) => setNotifForm({ ...notifForm, title: e.target.value })}
+                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all font-bold"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Message</label>
+                                    <textarea
+                                        placeholder="Detailed content..."
+                                        value={notifForm.message}
+                                        onChange={(e) => setNotifForm({ ...notifForm, message: e.target.value })}
+                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all resize-none font-medium leading-relaxed"
+                                    />
+                                </div>
+
+                                <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={handleSendNotification}
+                                    disabled={isSendingNotif}
+                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                                >
+                                    {isSendingNotif ? (
+                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <>
+                                            <Bell className="w-5 h-5" />
+                                            {notifUserId === -1 ? 'Broadcast Now' : 'Send Now'}
+                                        </>
+                                    )}
+                                </motion.button>
                             </div>
                         </motion.div>
                     </motion.div>

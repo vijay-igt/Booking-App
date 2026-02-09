@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { createTheater, getTheaters, createScreen, updateScreen, deleteScreen, generateSeats, getSeatsByScreen, getAllShowtimes, deleteShowtime, getAllBookings, deleteBooking, getScreenTiers, deleteTheater } from '../controllers/adminController';
+import { createTheater, getTheaters, createScreen, updateScreen, deleteScreen, generateSeats, getSeatsByScreen, getAllShowtimes, deleteShowtime, getAllBookings, deleteBooking, getScreenTiers, deleteTheater, getUsers } from '../controllers/adminController';
 import { createShowtime, updateShowtime } from '../controllers/showtimeController';
 import { createMovie, updateMovie, deleteMovie } from '../controllers/movieController';
+import { createAdminNotification, broadcastNotification } from '../controllers/notificationController';
 
 const router = Router();
 
@@ -26,5 +27,10 @@ router.delete('/bookings/:id', deleteBooking);
 router.post('/movies', createMovie);
 router.put('/movies/:id', updateMovie);
 router.delete('/movies/:id', deleteMovie);
+
+// User & Notification Routes for Admin
+router.get('/users', getUsers);
+router.post('/notifications', createAdminNotification);
+router.post('/broadcast', broadcastNotification);
 
 export default router;

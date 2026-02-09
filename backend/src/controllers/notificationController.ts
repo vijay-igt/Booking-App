@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Notification } from '../models/Notification';
+import { User } from '../models/User';
 
 export const getUserNotifications = async (req: Request, res: Response) => {
     try {
@@ -94,5 +95,56 @@ export const deleteAllNotifications = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error deleting all notifications:', error);
         res.status(500).json({ message: 'Error deleting notifications' });
+    }
+};
+
+export const createAdminNotification = async (req: Request, res: Response) => {
+    try {
+        const { userId, title, message, type } = req.body;
+
+        if (!userId || !title || !message) {
+            res.status(400).json({ message: 'Missing required fields' });
+            return;
+        }
+
+        const notification = await Notification.create({
+            userId,
+            title,
+            message,
+            type: type || 'info',
+            isRead: false
+        });
+
+        res.status(201).json(notification);
+    } catch (error) {
+        console.error('Error creating admin notification:', error);
+        res.status(500).json({ message: 'Error sending notification' });
+    }
+};
+
+export const broadcastNotification = async (req: Request, res: Response) => {
+    try {
+        const { title, message, type } = req.body;
+
+        if (!title || !message) {
+            res.status(400).json({ message: 'Missing required fields' });
+            return;
+        }
+
+        const users = await User.findAll({ attributes: ['id'] });
+        const notifications = users.map(user => ({
+            userId: user.id,
+            title,
+            message,
+            type: type || 'info',
+            isRead: false
+        }));
+
+        await Notification.bulkCreate(notifications);
+
+        res.status(201).json({ message: `Notification broadcasted to ${users.length} users` });
+    } catch (error) {
+        console.error('Error broadcasting notification:', error);
+        res.status(500).json({ message: 'Error broadcasting notification' });
     }
 };
