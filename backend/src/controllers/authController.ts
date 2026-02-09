@@ -62,3 +62,38 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         res.status(500).json({ message: 'Server error', error });
     }
 };
+
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = (req as any).user?.id;
+        const { name, email } = req.body;
+
+        if (!userId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const user = await User.findByPk(userId);
+        if (!user) {
+            res.status(404).json({ message: 'User not found' });
+            return;
+        }
+
+        await user.update({ name, email });
+
+        // Trigger info notification
+        const { Notification } = require('../models/Notification');
+        await Notification.create({
+            userId: user.id,
+            title: 'Profile Updated',
+            message: `Hi ${user.name}, your profile details have been successfully updated.`,
+            type: 'info',
+            isRead: false
+        });
+
+        res.json({ message: 'Profile updated successfully', user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    } catch (error) {
+        console.error('Update profile error:', error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+};

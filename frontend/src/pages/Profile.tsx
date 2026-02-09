@@ -1,17 +1,42 @@
-import React, { useContext } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ChevronLeft, User, Mail, Shield, LogOut, Ticket, ChevronRight, Crown } from 'lucide-react';
+import { ChevronLeft, User, Mail, Shield, LogOut, Ticket, ChevronRight, Crown, Edit2, Check, X } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import BottomNav from '../components/BottomNav';
+import api from '../api';
 
 const Profile: React.FC = () => {
     const auth = useContext(AuthContext);
     const navigate = useNavigate();
+    const [isEditing, setIsEditing] = useState(false);
+    const [newName, setNewName] = useState(auth?.user?.name || '');
+    const [isSaving, setIsSaving] = useState(false);
 
     const handleLogout = () => {
         auth?.logout();
         navigate('/login');
+    };
+
+    const handleUpdateProfile = async () => {
+        if (!newName.trim() || newName === auth?.user?.name) {
+            setIsEditing(false);
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            const response = await api.put('/auth/profile', { name: newName });
+            if (auth?.user) {
+                auth.login(auth.token!, response.data.user);
+            }
+            setIsEditing(false);
+        } catch (error) {
+            console.error('Error updating profile:', error);
+            alert('Failed to update profile');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const menuItems = [
@@ -63,7 +88,43 @@ const Profile: React.FC = () => {
                             <User className="w-10 h-10 text-white" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <h2 className="text-2xl font-bold mb-1 truncate">{auth?.user?.name || 'User'}</h2>
+                            {isEditing ? (
+                                <div className="flex items-center gap-2 mb-2">
+                                    <input
+                                        type="text"
+                                        value={newName}
+                                        onChange={(e) => setNewName(e.target.value)}
+                                        className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-emerald-500 w-full"
+                                        autoFocus
+                                    />
+                                    <button
+                                        onClick={handleUpdateProfile}
+                                        disabled={isSaving}
+                                        className="p-1.5 bg-emerald-500 rounded-lg text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                                    >
+                                        <Check className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setIsEditing(false);
+                                            setNewName(auth?.user?.name || '');
+                                        }}
+                                        className="p-1.5 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 mb-1">
+                                    <h2 className="text-2xl font-bold truncate">{auth?.user?.name || 'User'}</h2>
+                                    <button
+                                        onClick={() => setIsEditing(true)}
+                                        className="p-1 hover:text-emerald-400 transition-colors text-neutral-500"
+                                    >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
                             <div className="flex items-center gap-2 text-sm text-neutral-400 mb-2">
                                 <Mail className="w-4 h-4" />
                                 <span className="truncate">{auth?.user?.email || 'user@example.com'}</span>

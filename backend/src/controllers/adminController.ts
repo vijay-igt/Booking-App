@@ -313,6 +313,21 @@ export const deleteBooking = async (req: Request, res: Response): Promise<void> 
         // Delete associated tickets first
         await Ticket.destroy({ where: { bookingId: booking.id } });
 
+        // Fetch details for notification before deleting booking
+        const { Notification } = require('../models/Notification');
+        const showtime = await Showtime.findByPk(booking.showtimeId, { include: [Movie] });
+
+        // Only notify if it's a future booking
+        if (showtime && new Date(showtime.startTime) > new Date()) {
+            await Notification.create({
+                userId: booking.userId,
+                title: 'Booking Cancelled',
+                message: `Your booking for ${showtime.movie?.title || 'a movie'} has been cancelled by the administrator. A refund (if applicable) will be processed.`,
+                type: 'warning',
+                isRead: false
+            });
+        }
+
         await booking.destroy();
         res.json({ message: 'Booking deleted successfully' });
     } catch (error) {
