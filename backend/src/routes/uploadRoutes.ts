@@ -11,13 +11,8 @@ router.post('/', upload.single('image'), (req: Request, res: Response) => {
             return;
         }
 
-        // Return the URL for the uploaded file
-        // Assuming the server serves 'uploads' directory at /uploads
-        const protocol = req.protocol;
-        const host = req.get('host');
-        const fileUrl = `${protocol}://${host}/uploads/${file.filename}`;
-
-        res.json({ url: fileUrl });
+        // Return the Cloudinary URL
+        res.json({ url: file.path });
     } catch (error) {
         res.status(500).json({ message: 'Error uploading file', error });
     }
