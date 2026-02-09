@@ -66,4 +66,13 @@ const startServer = async () => {
     }
 };
 
+// Global Error Handler
+app.use((err: any, req: Request, res: Response, next: any) => {
+    console.error('Unhandled Error:', err);
+    res.status(err.status || 500).json({
+        message: err.message || 'Internal Server Error',
+        error: process.env.NODE_ENV === 'production' ? {} : err
+    });
+});
+
 startServer();
