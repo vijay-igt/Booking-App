@@ -21,3 +21,12 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
         res.status(403).json({ message: 'Invalid or expired token.', error: (error as any).message });
     }
 };
+export const adminAuth = (req: Request, res: Response, next: NextFunction) => {
+    authenticateToken(req, res, () => {
+        if ((req as any).user?.role !== 'admin') {
+            res.status(403).json({ message: 'Access denied. Admin role required.' });
+            return;
+        }
+        next();
+    });
+};

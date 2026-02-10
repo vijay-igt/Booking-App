@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Ticket, User } from 'lucide-react';
+import { Home, Ticket, User, Wallet } from 'lucide-react';
 
 const BottomNav: React.FC = () => {
   const navigate = useNavigate();
@@ -42,6 +42,17 @@ const BottomNav: React.FC = () => {
       >
         <User className="w-6 h-6" />
         <span className="text-[9px] font-black uppercase tracking-widest">Profile</span>
+      </motion.button>
+
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.9 }}
+        onClick={() => navigate('/wallet')}
+        className={`flex flex-col items-center gap-1 transition-colors ${isActive('/wallet') ? 'text-blue-500' : 'text-gray-500 hover:text-white'
+          }`}
+      >
+        <Wallet className="w-6 h-6" />
+        <span className="text-[9px] font-black uppercase tracking-widest">Wallet</span>
       </motion.button>
     </nav>
   );

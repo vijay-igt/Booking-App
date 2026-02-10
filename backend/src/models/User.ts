@@ -35,4 +35,11 @@ export class User extends Model {
         allowNull: false,
     })
     declare role: 'admin' | 'user';
+
+    @Default(0.00)
+    @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: false,
+    })
+    declare walletBalance: number;
 }

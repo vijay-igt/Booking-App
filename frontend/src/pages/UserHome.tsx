@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Bell, ChevronRight, Clock, Sparkles, User, LogIn } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 import NotificationCenter from '../components/NotificationCenter';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 interface Movie {
     id: number;
@@ -16,6 +16,14 @@ interface Movie {
     posterUrl: string;
     bannerUrl?: string;
     rating: string;
+}
+
+interface Notification {
+    id: string;
+    message: string;
+    isRead: boolean;
+    timestamp: string;
+    userId: number;
 }
 
 const CATEGORIES = ["All", "Action", "Comedy", "Sci-Fi", "Romantic", "Thriller", "Drama"];
@@ -29,7 +37,7 @@ const UserHome: React.FC = () => {
     const [isNotifOpen, setIsNotifOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
-    const auth = useContext(AuthContext);
+    const auth = useAuth();
 
     useEffect(() => {
         const fetchMovies = async () => {
@@ -45,25 +53,28 @@ const UserHome: React.FC = () => {
         fetchMovies();
     }, []);
 
-    const fetchNotifications = async () => {
-        if (!auth?.user) return;
+    const fetchNotifications = useCallback(async () => {
+        if (!auth.user) return;
         try {
             const response = await api.get('/notifications');
-            const unread = response.data.filter((n: any) => !n.isRead).length;
+            const unread = response.data.filter((n: Notification) => !n.isRead).length;
             setUnreadCount(unread);
         } catch (error) {
             console.error('Error fetching unread count:', error);
         }
-    };
+    }, [auth.user, setUnreadCount]);
 
     useEffect(() => {
-        if (auth?.user) {
-            fetchNotifications();
+        if (auth.user) {
+            const loadNotifications = async () => {
+                await fetchNotifications();
+            };
+            loadNotifications();
             // Poll for notifications every 30 seconds
-            const interval = setInterval(fetchNotifications, 30000);
+            const interval = setInterval(loadNotifications, 30000);
             return () => clearInterval(interval);
         }
-    }, [auth?.user]);
+    }, [auth.user, fetchNotifications]);
 
     useEffect(() => {
         if (movies.length > 0) {
@@ -72,7 +83,7 @@ const UserHome: React.FC = () => {
             }, 6000);
             return () => clearInterval(interval);
         }
-    }, [movies]);
+    }, [movies, setFeaturedIndex]);
 
     const filteredMovies = movies.filter(m =>
         (selectedCategory === "All" || m.genre.includes(selectedCategory)) &&
@@ -119,7 +130,7 @@ const UserHome: React.FC = () => {
                         </motion.h1>
                     </div>
                     <div className="flex items-center gap-3">
-                        {auth?.user ? (
+                        {auth.user ? (
                             <motion.button
                                 whileTap={{ scale: 0.9 }}
                                 onClick={() => navigate('/profile')}

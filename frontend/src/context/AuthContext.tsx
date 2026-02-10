@@ -1,23 +1,6 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-
-interface User {
-    id: number;
-    name: string;
-    email: string;
-    role: 'admin' | 'user';
-}
-
-interface AuthContextType {
-    user: User | null;
-    token: string | null;
-    isLoading: boolean;
-    login: (token: string, user: User) => void;
-    logout: () => void;
-    isAuthenticated: boolean;
-}
-
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+import { AuthContext, type User } from './AuthContextDefinition';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
@@ -25,14 +8,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
-        console.log('AuthContext Initialization:', { hasToken: !!storedToken, hasUser: !!storedUser });
-        if (storedToken && storedUser) {
-            setToken(storedToken);
-            setUser(JSON.parse(storedUser));
-        }
-        setIsLoading(false);
+        const initializeAuth = () => {
+            const storedToken = localStorage.getItem('token');
+            const storedUser = localStorage.getItem('user');
+            console.log('AuthContext Initialization:', { hasToken: !!storedToken, hasUser: !!storedUser });
+            if (storedToken && storedUser) {
+                setToken(storedToken);
+                setUser(JSON.parse(storedUser));
+            }
+            setIsLoading(false);
+        };
+        initializeAuth();
     }, []);
 
     const login = (newToken: string, newUser: User) => {
@@ -56,3 +42,5 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         </AuthContext.Provider>
     );
 };
+
+

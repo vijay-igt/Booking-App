@@ -19,12 +19,39 @@ const Register: React.FC = () => {
         try {
             await api.post('/auth/register', { name, email, password });
             navigate('/login');
-        } catch (err: any) {
-            setError(err.response?.data?.message || 'Registration failed');
+        } catch (err: unknown) {
+            if (isAxiosError(err) && err.response?.data?.message) {
+                setError(err.response.data.message);
+            } else {
+                setError('Registration failed');
+            }
         } finally {
             setIsLoading(false);
         }
     };
+
+    function isAxiosError(error: unknown): error is { response: { data: { message: string } } } {
+        if (typeof error !== 'object' || error === null) {
+            return false;
+        }
+
+        // Check for 'response' property and its type
+        if (!('response' in error) || typeof (error as { response: unknown }).response !== 'object' || (error as { response: unknown }).response === null) {
+            return false;
+        }
+
+        const response = (error as { response: { data: unknown } }).response;
+
+        // Check for 'data' property in response and its type
+        if (!('data' in response) || typeof response.data !== 'object' || response.data === null) {
+            return false;
+        }
+
+        const data = (response as { data: { message: unknown } }).data;
+
+        // Check for 'message' property in data and its type
+        return 'message' in data && typeof (data as { message: unknown }).message === 'string';
+    }
 
     return (
         <div className="min-h-screen bg-neutral-950 text-white flex flex-col">

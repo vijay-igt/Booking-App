@@ -5,6 +5,7 @@ import { Showtime } from '../models/Showtime';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
 import { Booking } from '../models/Booking';
+import { getProducer } from '../utils/kafka';
 
 export const createMovie = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -54,6 +55,29 @@ export const getMovieById = async (req: Request, res: Response): Promise<void> =
             res.status(404).json({ message: 'Movie not found' });
             return;
         }
+
+        // Produce movie view event
+        try {
+            const userId = (req as any).user?.id;
+            const producer = await getProducer();
+            if (producer) {
+                await producer.send({
+                    topic: 'user-activity',
+                    messages: [{
+                        value: JSON.stringify({
+                            userId,
+                            movieId: id,
+                            title: movie.title,
+                            type: 'MOVIE_VIEW',
+                            timestamp: new Date().toISOString()
+                        })
+                    }]
+                });
+            }
+        } catch (eventError) {
+            console.error('Failed to publish movie view event:', eventError);
+        }
+
         res.json(movie);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching movie', error });

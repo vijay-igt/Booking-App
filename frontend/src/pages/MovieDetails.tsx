@@ -1,10 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Star, Calendar, MapPin, Users, Bell } from 'lucide-react';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import NotificationCenter from '../components/NotificationCenter';
+
+interface Notification {
+    id: string;
+    message: string;
+    isRead: boolean;
+    timestamp: string;
+    userId: number;
+}
 
 interface Movie {
     id: number;
@@ -43,19 +51,25 @@ const MovieDetails: React.FC = () => {
     const [isNotifOpen, setIsNotifOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
-    const auth = React.useContext(AuthContext);
+    const auth = useAuth();
+    const hasExpandedRef = useRef(false);
+
+    const fetchNotifications = useCallback(async () => {
+        if (!auth.user) return;
+        try {
+            const response = await api.get('/notifications');
+            const unread = response.data.filter((n: Notification) => !n.isRead).length;
+            setUnreadCount(unread);
+        } catch (error) {
+            console.error('Error fetching unread count:', error);
+        }
+    }, [auth.user, setUnreadCount]);
 
     useEffect(() => {
         const fetchMovie = async () => {
             try {
                 const response = await api.get(`/movies/${id}`);
                 setMovie(response.data);
-
-                // Auto-expand today's showtimes
-                if (response.data.showtimes?.length > 0) {
-                    const today = new Date().toLocaleDateString();
-                    setExpandedDay(today);
-                }
             } catch (error) {
                 console.error('Error fetching movie details:', error);
             }
@@ -63,22 +77,23 @@ const MovieDetails: React.FC = () => {
         fetchMovie();
     }, [id]);
 
-    const fetchNotifications = async () => {
-        if (!auth?.user) return;
-        try {
-            const response = await api.get('/notifications');
-            const unread = response.data.filter((n: any) => !n.isRead).length;
-            setUnreadCount(unread);
-        } catch (error) {
-            console.error('Error fetching unread count:', error);
+    useEffect(() => {
+        // Auto-expand today's showtimes after movie data is fetched
+        if (movie && movie.showtimes?.length > 0 && expandedDay === null && !hasExpandedRef.current) {
+            const today = new Date().toLocaleDateString();
+            setTimeout(() => {
+                setExpandedDay(today);
+            }, 0);
+            hasExpandedRef.current = true;
         }
-    };
+    }, [movie]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (auth?.user) {
-            fetchNotifications();
-        }
-    }, [auth?.user]);
+        const loadNotifications = async () => {
+            await fetchNotifications();
+        };
+        loadNotifications();
+    }, [fetchNotifications]);
 
     if (!movie) return (
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center">

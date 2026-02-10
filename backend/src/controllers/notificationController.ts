@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Notification } from '../models/Notification';
 import { User } from '../models/User';
+import { getProducer } from '../utils/kafka';
 
 export const getUserNotifications = async (req: Request, res: Response) => {
     try {
@@ -107,15 +108,24 @@ export const createAdminNotification = async (req: Request, res: Response) => {
             return;
         }
 
-        const notification = await Notification.create({
-            userId,
-            title,
-            message,
-            type: type || 'info',
-            isRead: false
-        });
-
-        res.status(201).json(notification);
+        const producer = await getProducer();
+        if (producer) {
+            await producer.send({
+                topic: 'single-notifications',
+                messages: [{ value: JSON.stringify({ userId, title, message, type: type || 'info' }) }]
+            });
+            res.status(202).json({ message: 'Notification queued for delivery' });
+        } else {
+            // Fallback: Direct DB creation if Kafka is down
+            await Notification.create({
+                userId,
+                title,
+                message,
+                type: type || 'info',
+                isRead: false
+            });
+            res.status(201).json({ message: 'Notification sent (fallback)' });
+        }
     } catch (error) {
         console.error('Error creating admin notification:', error);
         res.status(500).json({ message: 'Error sending notification' });
@@ -131,18 +141,26 @@ export const broadcastNotification = async (req: Request, res: Response) => {
             return;
         }
 
-        const users = await User.findAll({ attributes: ['id'] });
-        const notifications = users.map(user => ({
-            userId: user.id,
-            title,
-            message,
-            type: type || 'info',
-            isRead: false
-        }));
-
-        await Notification.bulkCreate(notifications);
-
-        res.status(201).json({ message: `Notification broadcasted to ${users.length} users` });
+        const producer = await getProducer();
+        if (producer) {
+            await producer.send({
+                topic: 'broadcast-notifications',
+                messages: [{ value: JSON.stringify({ title, message, type: type || 'info' }) }]
+            });
+            res.status(202).json({ message: 'Broadcast initiated successfully' });
+        } else {
+            // Fallback: Direct DB creation
+            const users = await User.findAll({ attributes: ['id'] });
+            const notifications = users.map(user => ({
+                userId: user.id,
+                title,
+                message,
+                type: type || 'info',
+                isRead: false
+            }));
+            await Notification.bulkCreate(notifications);
+            res.status(201).json({ message: `Broadcast sent to ${users.length} users (fallback)` });
+        }
     } catch (error) {
         console.error('Error broadcasting notification:', error);
         res.status(500).json({ message: 'Error broadcasting notification' });

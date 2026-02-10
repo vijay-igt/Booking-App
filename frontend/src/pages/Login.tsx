@@ -1,16 +1,17 @@
-import React, { useState, useContext } from 'react';
-import { AuthContext } from '../context/AuthContext';
+import React, { useState } from 'react';
+import { useAuth } from '../context/useAuth';
 import api from '../api';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import { AxiosError } from 'axios';
 
 const Login: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const auth = useContext(AuthContext);
+    const auth = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -20,12 +21,16 @@ const Login: React.FC = () => {
         setError('');
         try {
             const response = await api.post('/auth/login', { email, password });
-            auth?.login(response.data.token, response.data.user);
+            auth.login(response.data.token, response.data.user);
 
             const from = location.state?.from || (response.data.user.role === 'admin' ? '/admin' : '/');
             navigate(from, { replace: true });
-        } catch (err: any) {
-            setError(err.response?.data?.message || 'Login failed');
+        } catch (err: unknown) {
+            if (err instanceof AxiosError && err.response?.data?.message) {
+                setError(err.response.data.message);
+            } else {
+                setError('Login failed');
+            }
         } finally {
             setIsLoading(false);
         }

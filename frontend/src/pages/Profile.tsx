@@ -1,25 +1,25 @@
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ChevronLeft, User, Mail, Shield, LogOut, Ticket, ChevronRight, Crown, Edit2, Check, X } from 'lucide-react';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import BottomNav from '../components/BottomNav';
 import api from '../api';
 
 const Profile: React.FC = () => {
-    const auth = useContext(AuthContext);
+    const auth = useAuth();
     const navigate = useNavigate();
     const [isEditing, setIsEditing] = useState(false);
-    const [newName, setNewName] = useState(auth?.user?.name || '');
+    const [newName, setNewName] = useState(auth.user?.name || '');
     const [isSaving, setIsSaving] = useState(false);
 
     const handleLogout = () => {
-        auth?.logout();
+        auth.logout();
         navigate('/login');
     };
 
     const handleUpdateProfile = async () => {
-        if (!newName.trim() || newName === auth?.user?.name) {
+        if (!newName.trim() || newName === auth.user?.name) {
             setIsEditing(false);
             return;
         }
@@ -27,8 +27,8 @@ const Profile: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await api.put('/auth/profile', { name: newName });
-            if (auth?.user) {
-                auth.login(auth.token!, response.data.user);
+            if (auth.user && auth.token) {
+                auth.login(auth.token, response.data.user);
             }
             setIsEditing(false);
         } catch (error) {
@@ -52,7 +52,7 @@ const Profile: React.FC = () => {
             label: 'Admin Dashboard',
             description: 'Manage system',
             onClick: () => navigate('/admin'),
-            show: auth?.user?.role === 'admin',
+            show: auth.user?.role === 'admin',
             badge: 'Admin'
         }
     ];
@@ -107,7 +107,7 @@ const Profile: React.FC = () => {
                                     <button
                                         onClick={() => {
                                             setIsEditing(false);
-                                            setNewName(auth?.user?.name || '');
+                                            setNewName(auth.user?.name || '');
                                         }}
                                         className="p-1.5 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
                                     >
@@ -116,7 +116,7 @@ const Profile: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2 mb-1">
-                                    <h2 className="text-2xl font-bold truncate">{auth?.user?.name || 'User'}</h2>
+                                    <h2 className="text-2xl font-bold truncate">{auth.user?.name || 'User'}</h2>
                                     <button
                                         onClick={() => setIsEditing(true)}
                                         className="p-1 hover:text-emerald-400 transition-colors text-neutral-500"
@@ -127,9 +127,9 @@ const Profile: React.FC = () => {
                             )}
                             <div className="flex items-center gap-2 text-sm text-neutral-400 mb-2">
                                 <Mail className="w-4 h-4" />
-                                <span className="truncate">{auth?.user?.email || 'user@example.com'}</span>
+                                <span className="truncate">{auth.user?.email || 'user@example.com'}</span>
                             </div>
-                            {auth?.user?.role === 'admin' && (
+                            {auth.user?.role === 'admin' && (
                                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/30">
                                     <Crown className="w-3 h-3 text-amber-400" />
                                     <span className="text-xs font-semibold text-amber-400">Administrator</span>

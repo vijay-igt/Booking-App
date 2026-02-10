@@ -10,9 +10,18 @@ import bookingRoutes from './routes/bookingRoutes';
 import movieRoutes from './routes/movieRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 import notificationRoutes from './routes/notificationRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
+import walletRoutes from './routes/walletRoutes';
+import lockRoutes from './routes/lockRoutes';
 import path from 'path';
 
+import { startNotificationConsumer } from './consumers/notificationConsumer';
+import { startSeatReservationConsumer } from './consumers/seatReservationConsumer';
+import { startAnalyticsConsumer } from './consumers/analyticsConsumer';
+import { startEmailConsumer } from './consumers/emailConsumer';
+import { startWalletConsumer } from './consumers/walletConsumer';
 import { seedAdmin } from './seedAdmin';
+import { initializeWebSocket } from './services/websocketService';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -40,6 +49,9 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api', movieRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin/analytics', analyticsRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api', lockRoutes);
 
 // Serve uploads statically
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -58,9 +70,18 @@ const startServer = async () => {
         // Automated Admin Seeding
         await seedAdmin();
 
-        app.listen(PORT, () => {
+        // Start Kafka Consumers
+        startNotificationConsumer().catch(err => console.error('Notification Consumer Error:', err));
+        startSeatReservationConsumer().catch(err => console.error('Reservation Consumer Error:', err));
+        startAnalyticsConsumer().catch(err => console.error('Analytics Consumer Error:', err));
+        startEmailConsumer().catch(err => console.error('Email Consumer Error:', err));
+        startWalletConsumer().catch(err => console.error('Wallet Consumer Error:', err));
+
+        const server = app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
         });
+
+        initializeWebSocket(server);
     } catch (error) {
         console.error('Unable to connect to the database:', error);
     }

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
+import { getProducer } from '../utils/kafka';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
@@ -55,6 +56,26 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         }
 
         const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+
+        // Produce login event
+        try {
+            const producer = await getProducer();
+            if (producer) {
+                await producer.send({
+                    topic: 'user-activity',
+                    messages: [{
+                        value: JSON.stringify({
+                            userId: user.id,
+                            email: user.email,
+                            type: 'USER_LOGIN',
+                            timestamp: new Date().toISOString()
+                        })
+                    }]
+                });
+            }
+        } catch (eventError) {
+            console.error('Failed to publish login event:', eventError);
+        }
 
         res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {

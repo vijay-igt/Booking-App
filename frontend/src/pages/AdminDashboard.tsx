@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -17,91 +17,33 @@ import {
     X,
     Star,
     Users,
-    Bell
+    Bell,
+    Activity as ActivityIcon,
+    List,
+    BarChart3,
+    Wallet
 } from 'lucide-react';
-import { AuthContext } from '../context/AuthContext';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
+import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
+import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Activity, Seat, SeatTierConfig } from '../types';
+import { AxiosError } from 'axios';
 
-interface Theater {
-    id: number;
-    name: string;
-    location: string;
-    screens: Screen[];
-}
-
-interface Screen {
-    id: number;
-    name: string;
-    theaterId: number;
-}
-
-interface Movie {
-    id: number;
-    title: string;
-    description: string;
-    genre: string;
-    duration: number;
-    rating: string;
-    posterUrl: string;
-    bannerUrl: string;
-    releaseDate: string;
-    language: string;
-    audio: string;
-    format: string;
-}
-
-interface Showtime {
-    id: number;
-    movieId: number;
-    screenId: number;
-    startTime: string;
-    endTime: string;
-    tierPrices?: Record<string, number>;
-    movie: Movie;
-    screen: Screen & { theater: Theater };
-}
-
-interface Booking {
-    id: number;
-    userId: number;
-    showtimeId: number;
-    totalAmount: number;
-    status: string;
-    createdAt: string;
-    user: {
-        name: string;
-        email: string;
-    };
-    showtime: {
-        startTime: string;
-        movie: {
-            title: string;
-        };
-        screen: {
-            name: string;
-            theater: {
-                name: string;
-            };
-        };
-    };
-}
-
-interface User {
-    id: number;
-    name: string;
-    email: string;
-    role: string;
-    createdAt: string;
-}
+// Types are imported from '../types'
 
 const AdminDashboard: React.FC = () => {
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users'>('theaters');
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'activity' | 'wallet'>('theaters');
+    const [walletRequests, setWalletRequests] = useState<WalletRequest[]>([]);
+    const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
+    const [activities, setActivities] = useState<Activity[]>([]);
+    const [activityView, setActivityView] = useState<'list' | 'chart'>('list');
     const [theaters, setTheaters] = useState<Theater[]>([]);
     const [movies, setMovies] = useState<Movie[]>([]);
     const [showtimes, setShowtimes] = useState<Showtime[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [users, setUsers] = useState<User[]>([]);
-    const auth = useContext(AuthContext);
+    const [usersWithWallets, setUsersWithWallets] = useState<User[]>([]);
+    const auth = useAuth();
     const navigate = useNavigate();
 
     const [newTheater, setNewTheater] = useState({ name: '', location: '' });
@@ -130,35 +72,81 @@ const AdminDashboard: React.FC = () => {
         try {
             const response = await api.get('/admin/bookings');
             setBookings(response.data);
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error); }
     }, []);
 
     const fetchTheaters = useCallback(async () => {
         try {
             const response = await api.get('/admin/theaters');
             setTheaters(response.data);
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error); }
     }, []);
 
     const fetchMovies = useCallback(async () => {
         try {
             const response = await api.get('/movies');
             setMovies(response.data);
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error); }
     }, []);
 
     const fetchShowtimes = useCallback(async () => {
         try {
             const response = await api.get('/admin/showtimes');
             setShowtimes(response.data);
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error); }
     }, []);
+
+    const fetchActivities = useCallback(async () => {
+        try {
+            const response = await api.get('/admin/analytics');
+            setActivities(response.data);
+        } catch (error: unknown) { console.error(error); }
+    }, []);
+
+    const fetchWalletRequests = useCallback(async () => {
+        try {
+            const response = await api.get('/wallet/admin/requests');
+            setWalletRequests(response.data);
+            setPendingRequestsCount(response.data.length);
+        } catch (error: unknown) { console.error(error); }
+    }, []);
+
+    const handleApproveRequest = async (requestId: number) => {
+        try {
+            await api.post(`/wallet/admin/approve/${requestId}`);
+            fetchWalletRequests();
+            fetchUsersWithWallets(); // Refresh users with wallets after approval
+        } catch (error: unknown) { console.error(error) }
+    };
+
+    const handleRejectRequest = async (requestId: number) => {
+        try {
+            await api.post(`/wallet/admin/reject/${requestId}`);
+            fetchWalletRequests();
+        } catch (error: unknown) { console.error(error) }
+    };
+
+    // Poll for activities when on the activity tab
+    useEffect(() => {
+        if (currentTab === 'activity') {
+            fetchActivities();
+            const interval = setInterval(fetchActivities, 3000);
+            return () => clearInterval(interval);
+        }
+    }, [currentTab, fetchActivities]);
 
     const fetchUsers = useCallback(async () => {
         try {
             const response = await api.get('/admin/users');
             setUsers(response.data);
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
+    }, []);
+
+    const fetchUsersWithWallets = useCallback(async () => {
+        try {
+            const response = await api.get('/wallet/admin/users');
+            setUsersWithWallets(response.data);
+        } catch (error: unknown) { console.error(error) }
     }, []);
 
     useEffect(() => {
@@ -167,7 +155,18 @@ const AdminDashboard: React.FC = () => {
         fetchShowtimes();
         fetchBookings();
         fetchUsers();
-    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers]);
+        fetchWalletRequests();
+        fetchUsersWithWallets(); // Fetch users with wallets on initial load
+
+        const walletRequestsInterval = setInterval(fetchWalletRequests, 5000); // Poll every 5 seconds
+        return () => clearInterval(walletRequestsInterval);
+    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers, fetchWalletRequests, fetchUsersWithWallets]);
+
+    useEffect(() => {
+        if (currentTab === 'wallet') {
+            fetchUsersWithWallets();
+        }
+    }, [currentTab, fetchUsersWithWallets]);
 
     useEffect(() => {
         if (!genScreenId) return; // Don't fetch if modal is closed
@@ -179,31 +178,31 @@ const AdminDashboard: React.FC = () => {
         const fetchLayout = async () => {
             try {
                 const response = await api.get(`/admin/seats/${genScreenId}`);
-                const seats = response.data;
+                const seats: Seat[] = response.data;
 
                 if (seats && seats.length > 0) {
-                    const maxCol = Math.max(...seats.map((s: any) => s.number));
+                    const maxCol = Math.max(...seats.map((s: Seat) => s.number));
                     setSeatCols(maxCol);
 
-                    const uniqueRows = [...new Set(seats.map((s: any) => s.row))].sort();
-                    const rowConfig = new Map();
-                    seats.forEach((s: any) => {
+                    const uniqueRows = [...new Set(seats.map((s: Seat) => s.row))].sort();
+                    const rowConfig = new Map<string, { type: string; price: number }>();
+                    seats.forEach((s: Seat) => {
                         if (!rowConfig.has(s.row)) {
                             rowConfig.set(s.row, { type: s.type, price: s.price });
                         }
                     });
 
-                    const reconstructedTiers: any[] = [];
+                    const reconstructedTiers: SeatTierConfig[] = [];
                     let currentType = '';
                     let currentPrice = 0;
                     let currentRowCount = 0;
 
                     const getRowIdx = (r: string) => r.charCodeAt(0) - 65;
-                    uniqueRows.sort((a: any, b: any) => getRowIdx(a) - getRowIdx(b));
+                    uniqueRows.sort((a: string, b: string) => getRowIdx(a) - getRowIdx(b));
 
-                    uniqueRows.forEach((row: any) => {
+                    uniqueRows.forEach((row: string) => {
                         const config = rowConfig.get(row);
-                        if (config.type !== currentType) {
+                        if (config && config.type !== currentType) {
                             if (currentType) {
                                 reconstructedTiers.push({
                                     name: currentType,
@@ -214,7 +213,7 @@ const AdminDashboard: React.FC = () => {
                             currentType = config.type;
                             currentPrice = config.price;
                             currentRowCount = 1;
-                        } else {
+                        } else if (config) {
                             currentRowCount++;
                         }
                     });
@@ -231,7 +230,7 @@ const AdminDashboard: React.FC = () => {
                         setSeatTiers(reconstructedTiers);
                     }
                 }
-            } catch (error) {
+            } catch (error: unknown) {  
                 console.error("Failed to fetch layout", error);
             }
         };
@@ -246,7 +245,7 @@ const AdminDashboard: React.FC = () => {
             setNewTheater({ name: '', location: '' });
             fetchTheaters();
             alert('Theater created successfully! Please remember to add screens and configure seat layouts for this new location.');
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleDeleteTheater = async (id: number) => {
@@ -254,7 +253,7 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.delete(`/admin/theaters/${id}`);
             fetchTheaters();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleAddScreen = async (theaterId: number) => {
@@ -264,7 +263,7 @@ const AdminDashboard: React.FC = () => {
             setNewScreenName('');
             setSelectedTheaterId(null);
             fetchTheaters();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleUpdateScreen = async () => {
@@ -273,7 +272,7 @@ const AdminDashboard: React.FC = () => {
             await api.put(`/admin/screens/${editingScreen.id}`, { name: editingScreen.name });
             setEditingScreen(null);
             fetchTheaters();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleDeleteScreen = async (screenId: number) => {
@@ -281,7 +280,7 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.delete(`/admin/screens/${screenId}`);
             fetchTheaters();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }   
     };
 
     const handleGenerateSeats = async (screenId: number) => {
@@ -291,7 +290,7 @@ const AdminDashboard: React.FC = () => {
             setSeatTiers([{ name: 'Classic', rows: 5, price: 150 }]);
             setSeatCols(10);
             alert('Seats generated successfully!');
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'posterUrl' | 'bannerUrl', isEdit: boolean) => {
@@ -303,7 +302,7 @@ const AdminDashboard: React.FC = () => {
 
         try {
             const response = await api.post('/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: { 'Content-Type': 'multipart/form-type' }
             });
             const url = response.data.url;
 
@@ -312,7 +311,7 @@ const AdminDashboard: React.FC = () => {
             } else {
                 setNewMovie({ ...newMovie, [field]: url });
             }
-        } catch (error) {
+        } catch (error: unknown) {  
             console.error('File upload failed:', error);
             alert('File upload failed');
         }
@@ -322,8 +321,8 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.post('/admin/movies', newMovie);
             setNewMovie({ title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D' });
-            fetchMovies();
-        } catch (error) { console.error(error); }
+            fetchMovies();      
+        }  catch (error: unknown) { console.error(error) }
     };
 
     const handleUpdateMovie = async () => {
@@ -332,7 +331,7 @@ const AdminDashboard: React.FC = () => {
             await api.put(`/admin/movies/${editingMovie.id}`, editingMovie);
             setEditingMovie(null);
             fetchMovies();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleDeleteMovie = async (id: number) => {
@@ -340,7 +339,7 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.delete(`/admin/movies/${id}`);
             fetchMovies();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleCreateShowtime = async () => {
@@ -366,9 +365,9 @@ const AdminDashboard: React.FC = () => {
             setNewShowtimeTime('');
             setSelectedScreenTiers([]);
             fetchShowtimes();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            if (error.response && error.response.data && error.response.data.message) {
+            if (error instanceof AxiosError && error.response && error.response.data && error.response.data.message) {
                 alert(`Error: ${error.response.data.message}`);
             } else {
                 alert('Failed to create showtime.');
@@ -381,7 +380,7 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.delete(`/admin/showtimes/${id}`);
             fetchShowtimes();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleDeleteBooking = async (id: number) => {
@@ -389,7 +388,7 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.delete(`/admin/bookings/${id}`);
             fetchBookings();
-        } catch (error) { console.error(error); }
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleSendNotification = async () => {
@@ -405,7 +404,7 @@ const AdminDashboard: React.FC = () => {
             alert(notifUserId === -1 ? 'Broadcast sent successfully!' : 'Notification sent successfully!');
             setNotifUserId(null);
             setNotifForm({ title: '', message: '', type: 'info' });
-        } catch (error) {
+        } catch (error: unknown) {
             console.error(error);
             alert('Failed to send notification');
         } finally {
@@ -418,14 +417,14 @@ const AdminDashboard: React.FC = () => {
             const response = await api.get(`/admin/screens/${screenId}/tiers`);
             setSelectedScreenTiers(response.data);
             setNewShowtime({ ...newShowtime, screenId, tierPrices: {} });
-        } catch (error) {
+        } catch (error: unknown) {
             console.error(error);
             setSelectedScreenTiers([]);
         }
     };
 
     const handleLogout = () => {
-        auth?.logout();
+        auth.logout();
         navigate('/login');
     };
 
@@ -434,7 +433,9 @@ const AdminDashboard: React.FC = () => {
         { id: 'movies' as const, label: 'Movies', icon: Film },
         { id: 'showtimes' as const, label: 'Showtimes', icon: Calendar },
         { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon },
-        { id: 'users' as const, label: 'Users', icon: Users }
+        { id: 'users' as const, label: 'Users', icon: Users },
+        { id: 'activity' as const, label: 'Live Activity', icon: ActivityIcon },
+        { id: 'wallet' as const, label: 'Wallet', icon: Wallet }
     ];
 
     return (
@@ -462,9 +463,20 @@ const AdminDashboard: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-3">
                             <div className="hidden sm:flex flex-col items-end mr-2">
-                                <p className="text-sm font-semibold">{auth?.user?.name}</p>
+                                <p className="text-sm font-semibold">{auth.user?.name}</p>
                                 <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">Administrator</p>
                             </div>
+                            <button
+                                onClick={() => setCurrentTab('wallet')}
+                                className="relative p-2 rounded-full bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
+                            >
+                                <Bell className="w-5 h-5" />
+                                {pendingRequestsCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                                        {pendingRequestsCount}
+                                    </span>
+                                )}
+                            </button>
                             <motion.button
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
@@ -1068,6 +1080,244 @@ const AdminDashboard: React.FC = () => {
                                         </button>
                                     </div>
                                 ))}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {currentTab === 'activity' && (
+                        <motion.div
+                            key="activity"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="space-y-6"
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="space-y-1">
+                                    <h3 className="text-2xl font-black tracking-tighter uppercase italic">Live System Activity</h3>
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex gap-1">
+                                            {[1, 2, 3].map(i => (
+                                                <motion.div
+                                                    key={i}
+                                                    animate={{ height: [4, 12, 4] }}
+                                                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                                                    className="w-1 bg-emerald-500 rounded-full"
+                                                />
+                                            ))}
+                                        </div>
+                                        <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest">Kafka Stream: Online</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <div className="flex p-1 bg-neutral-900 border border-white/5 rounded-xl">
+                                        <button
+                                            onClick={() => setActivityView('list')}
+                                            className={`p-2 rounded-lg transition-all ${activityView === 'list' ? 'bg-emerald-500 text-white' : 'text-neutral-500 hover:text-white'}`}
+                                        >
+                                            <List className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => setActivityView('chart')}
+                                            className={`p-2 rounded-lg transition-all ${activityView === 'chart' ? 'bg-emerald-500 text-white' : 'text-neutral-500 hover:text-white'}`}
+                                        >
+                                            <BarChart3 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={fetchActivities}
+                                        className="p-3 rounded-2xl bg-neutral-900 border border-white/5 text-neutral-400 hover:text-white hover:border-white/10 transition-all"
+                                    >
+                                        <Clock className="w-5 h-5" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {activityView === 'chart' ? (
+                                <div className="grid lg:grid-cols-2 gap-6">
+                                    <div className="p-6 rounded-3xl bg-neutral-900 border border-white/5 h-[400px]">
+                                        <h4 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6">Event Distribution</h4>
+                                        <ResponsiveContainer width="100%" height="90%">
+                                            <BarChart data={Object.entries((activities || []).reduce((acc: Record<string, number>, curr) => {
+                                                 const type = curr.type?.replace('_', ' ') || 'OTHER';
+                                                 acc[type] = (acc[type] || 0) + 1;
+                                                 return acc;
+                                             }, {})).map(([name, value]: [string, number]) => ({ name, value }))}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                                                <XAxis dataKey="name" stroke="#525252" fontSize={10} tickLine={false} axisLine={false} />
+                                                <YAxis stroke="#525252" fontSize={10} tickLine={false} axisLine={false} />
+                                                <Tooltip
+                                                    contentStyle={{ backgroundColor: '#171717', border: '1px solid #ffffff10', borderRadius: '12px' }}
+                                                    itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
+                                                />
+                                                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                                                     {Object.entries((activities || []).reduce((acc: Record<string, number>, curr) => {
+                                                         const type = curr.type?.replace('_', ' ') || 'OTHER';
+                                                         acc[type] = (acc[type] || 0) + 1;
+                                                         return acc;
+                                                     }, {})).map((entry: [string, number], index: number) => (
+                                                        <Cell key={`cell-${index}`} fill={
+                                                            entry[0].includes('BOOKING') ? '#10b981' :
+                                                                entry[0].includes('LOGIN') ? '#3b82f6' :
+                                                                    entry[0].includes('MOVIE') ? '#f59e0b' : '#737373'
+                                                        } />
+                                                    ))}
+                                                </Bar>
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+
+                                    <div className="p-6 rounded-3xl bg-neutral-900 border border-white/5 h-[400px]">
+                                        <h4 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6">Activity Timeline</h4>
+                                        <ResponsiveContainer width="100%" height="90%">
+                                            <AreaChart data={Array.from({ length: 15 }).map((_, i) => {
+                                                const date = new Date();
+                                                date.setSeconds(date.getSeconds() - (i * 20));
+                                                const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                                const count = (activities || []).filter(a => {
+                                                    const activityDate = new Date(a.timestamp);
+                                                    return activityDate > new Date(date.getTime() - 20000) && activityDate <= date;
+                                                }).length;
+                                                return { time: timeString, count };
+                                            }).reverse()}>
+                                                <defs>
+                                                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                                    </linearGradient>
+                                                </defs>
+                                                <XAxis dataKey="time" stroke="#525252" fontSize={10} tickLine={false} axisLine={false} />
+                                                <Tooltip
+                                                    contentStyle={{ backgroundColor: '#171717', border: '1px solid #ffffff10', borderRadius: '12px' }}
+                                                />
+                                                <Area type="monotone" dataKey="count" stroke="#10b981" fillOpacity={1} fill="url(#colorCount)" strokeWidth={3} />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {(activities || []).length === 0 ? (
+                                        <div className="h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
+                                            <ActivityIcon className="w-12 h-12 mb-3 opacity-20" />
+                                            <p className="font-medium tracking-tight">Listening for events...</p>
+                                        </div>
+                                    ) : (
+                                        activities.map((log, idx) => (
+                                            <motion.div
+                                                key={idx}
+                                                initial={{ opacity: 0, x: -20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                className="group relative rounded-2xl bg-neutral-900 border border-white/5 p-4 hover:border-emerald-500/20 transition-all overflow-hidden"
+                                            >
+                                                <div className="relative z-10 flex items-center gap-4">
+                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${log.type?.includes('LOGIN') ? 'bg-blue-500/10 text-blue-400' :
+                                                        log.type?.includes('BOOKING') ? 'bg-emerald-500/10 text-emerald-400' :
+                                                            log.type?.includes('VIEW') ? 'bg-amber-500/10 text-amber-400' :
+                                                                'bg-neutral-800 text-neutral-400'
+                                                        }`}>
+                                                        {log.type?.includes('LOGIN') ? <Users className="w-5 h-5" /> :
+                                                            log.type?.includes('BOOKING') ? <TicketIcon className="w-5 h-5" /> :
+                                                                <ActivityIcon className="w-5 h-5" />}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-0.5">
+                                                            <span className="text-sm font-bold tracking-tight text-white uppercase">{log.type?.replace('_', ' ') || 'SYSTEM EVENT'}</span>
+                                                            <span className="text-[10px] text-neutral-600 font-bold tabular-nums">
+                                                                {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '--:--'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-neutral-400 truncate font-medium">
+                                                            {log.email || log.title || log.userId || log.trackingId || 'System Action Processing'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[10px] text-neutral-700 font-black uppercase tracking-tighter">Event Logs</span>
+                                                    </div>
+                                                </div>
+                                                {idx === 0 && (
+                                                    <motion.div
+                                                        layoutId="newPulse"
+                                                        className="absolute inset-0 bg-emerald-500/5 pointer-events-none"
+                                                        animate={{ opacity: [0, 1, 0] }}
+                                                        transition={{ duration: 2, repeat: Infinity }}
+                                                    />
+                                                )}
+                                            </motion.div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+
+                    {/* WALLET TAB */}
+                    {currentTab === 'wallet' && (
+                        <motion.div
+                            key="wallet"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="space-y-6"
+                        >
+                            {/* All Users Wallets */}
+                            <div className="space-y-4">
+                                <h3 className="text-xl font-bold">All Users Wallets</h3>
+                                {usersWithWallets.length === 0 ? (
+                                    <div className="p-8 rounded-3xl bg-neutral-900 border border-white/5 text-center text-neutral-500">
+                                        No users with wallets found.
+                                    </div>
+                                ) : (
+                                    <div className="grid gap-4">
+                                        {usersWithWallets.map(user => (
+                                            <div key={user.id} className="p-4 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-between">
+                                                <div>
+                                                    <p className="font-bold text-white">{user.name}</p>
+                                                    <p className="text-sm text-neutral-400">{user.email}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className="text-lg font-bold text-emerald-500">₹{user.walletBalance || 0}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Pending Requests */}
+                            <div className="space-y-4">
+                                <h3 className="text-xl font-bold">Pending Top-up Requests</h3>
+                                {walletRequests.length === 0 ? (
+                                    <div className="p-8 rounded-3xl bg-neutral-900 border border-white/5 text-center text-neutral-500">
+                                        No pending requests
+                                    </div>
+                                ) : (
+                                    <div className="grid gap-4">
+                                        {walletRequests.map(req => (
+                                            <div key={req.id} className="p-4 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-between">
+                                                <div>
+                                                    <p className="font-bold text-white"><span className="text-emerald-500">₹{req.amount}</span> via {req.paymentMethod}</p>
+                                                    <p className="text-sm text-neutral-400">{req.user?.name} ({req.user?.email})</p>
+                                                    <p className="text-xs text-neutral-600 font-mono mt-1">{req.transactionRef}</p>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => handleApproveRequest(req.id)}
+                                                        className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-500 font-bold hover:bg-emerald-500/20 transition-colors"
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRejectRequest(req.id)}
+                                                        className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 font-bold hover:bg-red-500/20 transition-colors"
+                                                    >
+                                                        Reject
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     )}

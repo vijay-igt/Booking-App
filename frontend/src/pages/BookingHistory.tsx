@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Calendar, Clock, MapPin, Download, Share2, Ticket, QrCode } from 'lucide-react';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import BottomNav from '../components/BottomNav';
 import * as htmlToImage from 'html-to-image';
 
@@ -36,7 +36,7 @@ const BookingHistory: React.FC = () => {
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
-    const auth = useContext(AuthContext);
+    const auth = useAuth();
     const navigate = useNavigate();
 
     useEffect(() => {

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, X, Check, Info, CheckCircle, AlertTriangle, Trash2 } from 'lucide-react';
 import api from '../api';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 interface Notification {
     id: number;
@@ -16,10 +16,10 @@ interface Notification {
 const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [loading, setLoading] = useState(false);
-    const auth = useContext(AuthContext);
+    const auth = useAuth();
 
-    const fetchNotifications = async () => {
-        if (!auth?.user) return;
+    const fetchNotifications = useCallback(async () => {
+        if (!auth.user) return;
         setLoading(true);
         try {
             const response = await api.get('/notifications');
@@ -29,13 +29,13 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
         } finally {
             setLoading(false);
         }
-    };
+    }, [auth.user]);
 
     useEffect(() => {
-        if (isOpen && auth?.user) {
+        if (isOpen && auth.user) {
             fetchNotifications();
         }
-    }, [isOpen, auth?.user]);
+    }, [isOpen, auth.user, fetchNotifications]);
 
     const markAsRead = async (id: number) => {
         try {
