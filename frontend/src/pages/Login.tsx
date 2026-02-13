@@ -96,9 +96,9 @@ const Login: React.FC = () => {
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <label className="block text-sm font-medium text-neutral-400">Password</label>
-                                <button type="button" className="text-sm text-emerald-400 font-medium">
+                                <Link to="/forgot-password" title="Forgot Password?" className="text-sm text-emerald-400 font-medium">
                                     Forgot?
-                                </button>
+                                </Link>
                             </div>
                             <div className="relative">
                                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />

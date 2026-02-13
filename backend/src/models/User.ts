@@ -64,4 +64,32 @@ export class User extends Model {
         allowNull: false,
     })
     declare adminRequestStatus: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+    @Column({
+        type: DataType.STRING,
+        allowNull: true,
+    })
+    declare passwordResetToken?: string;
+
+    @Column({
+        type: DataType.DATE,
+        allowNull: true,
+    })
+    declare passwordResetExpires?: Date;
+
+    @Default(false)
+    @Column(DataType.BOOLEAN)
+    declare isEmailVerified: boolean;
+
+    @Column({
+        type: DataType.STRING,
+        allowNull: true,
+    })
+    declare emailVerificationToken?: string;
+
+    @Column({
+        type: DataType.DATE,
+        allowNull: true,
+    })
+    declare emailVerificationExpires?: Date;
 }
