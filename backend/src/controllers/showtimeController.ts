@@ -6,10 +6,27 @@ import { Screen } from '../models/Screen';
 import { Seat } from '../models/Seat';
 import { Ticket } from '../models/Ticket';
 import { Booking } from '../models/Booking';
+import { Theater } from '../models/Theater';
 
 export const createShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
         const { movieId, screenId, startTime, endTime, tierPrices } = req.body;
+        const user = req.user!;
+
+        // Ownership Check
+        const screen = await Screen.findByPk(screenId, {
+            include: [Theater]
+        });
+
+        if (!screen) {
+            res.status(404).json({ message: 'Screen not found.' });
+            return;
+        }
+
+        if (user.role !== 'super_admin' && screen.theater?.ownerId !== user.id) {
+            res.status(403).json({ message: 'Access denied. You do not own this screen.' });
+            return;
+        }
 
         if (!tierPrices || Object.keys(tierPrices).length === 0) {
             res.status(400).json({ message: 'At least one tier price must be configured.' });
@@ -184,11 +201,32 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
     try {
         const id = parseInt(req.params.id as string);
         const { movieId, screenId, startTime, endTime, tierPrices } = req.body;
+        const user = req.user!;
 
-        const showtime = await Showtime.findByPk(id);
+        const showtime = await Showtime.findByPk(id, {
+            include: [{ model: Screen, include: [Theater] }]
+        });
         if (!showtime) {
             res.status(404).json({ message: 'Showtime not found' });
             return;
+        }
+
+        // Ownership Check
+        if (user.role !== 'super_admin') {
+            const ownerId = showtime.screen?.theater?.ownerId;
+            if (ownerId !== user.id) {
+                res.status(403).json({ message: 'Access denied.' });
+                return;
+            }
+
+            // If changing screenId, check new screen ownership too
+            if (screenId && parseInt(screenId) !== showtime.screenId) {
+                const newScreen = await Screen.findByPk(screenId, { include: [Theater] });
+                if (!newScreen || newScreen.theater?.ownerId !== user.id) {
+                    res.status(403).json({ message: 'Access denied. You do not own the target screen.' });
+                    return;
+                }
+            }
         }
 
         // Check for overlaps if time or screen changed
@@ -252,11 +290,24 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
 export const deleteShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id as string);
-        const showtime = await Showtime.findByPk(id);
+        const user = req.user!;
+
+        const showtime = await Showtime.findByPk(id, {
+            include: [{ model: Screen, include: [Theater] }]
+        });
 
         if (!showtime) {
             res.status(404).json({ message: 'Showtime not found' });
             return;
+        }
+
+        // Ownership Check
+        if (user.role !== 'super_admin') {
+            const ownerId = showtime.screen?.theater?.ownerId;
+            if (ownerId !== user.id) {
+                res.status(403).json({ message: 'Access denied.' });
+                return;
+            }
         }
 
         // Manual cascade delete: delete associated tickets and bookings

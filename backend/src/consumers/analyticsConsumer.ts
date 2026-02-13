@@ -1,4 +1,4 @@
-import { getConsumer } from '../utils/kafka';
+import { getConsumer } from '../config/kafkaClient';
 
 export interface ActivityLog {
     userId?: number;

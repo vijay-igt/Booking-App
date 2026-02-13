@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, Plus, Clock, ArrowUpRight, ArrowDownLeft, CreditCard, XCircle, AlertCircle } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
-import { useWebSocketService } from '../services/websocketService';
+import { useWebSocket } from '../context/WebSocketContext';
 import { useAuth } from '../context/useAuth';
 
 interface NotificationPayload {
@@ -31,7 +31,7 @@ interface WalletRequest {
 }
 
 const WalletPage: React.FC = () => {
-    const authContext = useAuth();
+    const { user } = useAuth();
     const [balance, setBalance] = useState(0);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [requests, setRequests] = useState<WalletRequest[]>([]);
@@ -51,20 +51,14 @@ const WalletPage: React.FC = () => {
         } else if (update.type === 'USER_TOPUP_REJECTED') {
             // Remove the rejected request from pending requests
             setRequests(prev => prev.filter(req => req.id !== Number(update.requestId)));
-        } else if (update.type === 'TOPUP_REQUESTED' && authContext.user?.role === 'admin') {
+        } else if (update.type === 'TOPUP_REQUESTED' && user?.role === 'admin') {
             // Admin specific: if an admin is on this page, they might see new requests
             // For users, this is handled by the initial fetch and then approval/rejection
             fetchWalletData(); // Refetch all data to ensure consistency
         }
     };
 
-    useWebSocketService({ onWalletUpdate });
-
-    useEffect(() => {
-        fetchWalletData();
-    }, [authContext.user?.id]); // Add authContext?.user?.id as a dependency to refetch data when user logs in/out
-
-    const fetchWalletData = async () => {
+    const fetchWalletData = useCallback(async () => {
         try {
             const response = await api.get('/wallet/balance');
             setBalance(parseFloat(response.data.balance));
@@ -75,7 +69,24 @@ const WalletPage: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    const { subscribe } = useWebSocket();
+
+    useEffect(() => {
+        const unsubscribe = subscribe('USER_TOPUP_APPROVED', onWalletUpdate);
+        const unsubscribe2 = subscribe('USER_TOPUP_REJECTED', onWalletUpdate);
+        const unsubscribe3 = subscribe('TOPUP_REQUESTED', onWalletUpdate);
+        return () => {
+            unsubscribe();
+            unsubscribe2();
+            unsubscribe3();
+        };
+    }, [subscribe, onWalletUpdate]);
+
+    useEffect(() => {
+        fetchWalletData();
+    }, [user?.id, fetchWalletData]);
 
     const handleTopUp = async () => {
         if (!topUpAmount || isNaN(parseFloat(topUpAmount)) || parseFloat(topUpAmount) <= 0) return;
@@ -116,25 +127,31 @@ const WalletPage: React.FC = () => {
                         <Wallet className="w-32 h-32" />
                     </div>
                     <div className="relative z-10">
-                        <p className="text-emerald-100 font-medium mb-1 opacity-80">Available Balance</p>
+                        <p className="text-emerald-100 font-medium mb-1 opacity-80">
+                            {user?.role === 'user' && 'Available Balance'}
+                            {user?.role === 'admin' && 'Total Earnings'}
+                            {user?.role === 'super_admin' && 'Platform Revenue'}
+                        </p>
                         <h2 className="text-4xl font-black text-white tracking-tight">₹{balance.toFixed(2)}</h2>
 
-                        <div className="mt-8 flex gap-3">
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => setIsTopUpOpen(true)}
-                                className="flex-1 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center gap-2 text-white font-bold text-sm border border-white/10 hover:bg-white/30 transition-all"
-                            >
-                                <Plus className="w-4 h-4" />
-                                Add Money
-                            </motion.button>
-                        </div>
+                        {user?.role === 'user' && (
+                            <div className="mt-8 flex gap-3">
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setIsTopUpOpen(true)}
+                                    className="flex-1 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center gap-2 text-white font-bold text-sm border border-white/10 hover:bg-white/30 transition-all"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                    Add Money
+                                </motion.button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Pending Requests */}
-                {requests.length > 0 && (
+                {user?.role === 'user' && requests.length > 0 && (
                     <div className="space-y-4">
                         <h3 className="text-lg font-bold flex items-center gap-2">
                             <Clock className="w-5 h-5 text-amber-500" />

@@ -11,6 +11,7 @@ interface Booking {
     id: number;
     totalAmount: number;
     createdAt: string;
+    status: 'pending' | 'confirmed' | 'cancelled'; // Add status field
     showtime: {
         startTime: string;
         movie: {
@@ -63,8 +64,8 @@ const BookingHistory: React.FC = () => {
     };
 
     const now = new Date();
-    const upcomingBookings = bookings.filter(b => new Date(b.showtime.startTime) >= now);
-    const pastBookings = bookings.filter(b => new Date(b.showtime.startTime) < now);
+    const upcomingBookings = bookings.filter(b => b.status !== 'cancelled' && new Date(b.showtime.startTime) >= now);
+    const pastBookings = bookings.filter(b => b.status !== 'cancelled' && new Date(b.showtime.startTime) < now);
     const displayBookings = activeTab === 'upcoming' ? upcomingBookings : pastBookings;
 
     const handleShare = async (booking: Booking) => {
@@ -104,6 +105,26 @@ const BookingHistory: React.FC = () => {
         } catch (err) {
             console.error('Error downloading ticket:', err);
             alert('Failed to download ticket image.');
+        }
+    };
+
+    const handleCancelBooking = async (bookingId: number) => {
+        if (!window.confirm('Are you sure you want to cancel this booking? This action cannot be undone.')) {
+            return;
+        }
+        try {
+            if (!auth?.user) {
+                alert('User not authenticated.');
+                return;
+            }
+            await api.put(`/bookings/${bookingId}/cancel`);
+            // Refresh bookings after successful cancellation
+            const response = await api.get(`/bookings/user/${auth.user.id}`);
+            setBookings(response.data);
+            alert('Booking cancelled successfully!');
+        } catch (error) {
+            console.error('Error cancelling booking:', error);
+            alert('Failed to cancel booking. Please try again.');
         }
     };
 
@@ -275,6 +296,14 @@ const BookingHistory: React.FC = () => {
                                             <p className="text-xl font-bold text-emerald-400">₹{booking.totalAmount}</p>
                                         </div>
                                         <div className="flex gap-2">
+                                            {activeTab === 'upcoming' && (
+                                                <button
+                                                    onClick={() => handleCancelBooking(booking.id)}
+                                                    className="px-3 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
+                                                >
+                                                    Cancel Ticket
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => handleDownload(booking.id)}
                                                 className="w-9 h-9 rounded-full bg-neutral-800 flex items-center justify-center hover:bg-neutral-750 transition-colors"

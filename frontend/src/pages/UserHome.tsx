@@ -6,6 +6,7 @@ import { Search, Bell, ChevronRight, Clock, Sparkles, User, LogIn } from 'lucide
 import BottomNav from '../components/BottomNav';
 import NotificationCenter from '../components/NotificationCenter';
 import { useAuth } from '../context/useAuth';
+import { useWebSocket } from '../context/WebSocketContext';
 
 interface Movie {
     id: number;
@@ -38,6 +39,7 @@ const UserHome: React.FC = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
     const auth = useAuth();
+    const { subscribe } = useWebSocket();
 
     useEffect(() => {
         const fetchMovies = async () => {
@@ -66,15 +68,17 @@ const UserHome: React.FC = () => {
 
     useEffect(() => {
         if (auth.user) {
-            const loadNotifications = async () => {
-                await fetchNotifications();
-            };
-            loadNotifications();
-            // Poll for notifications every 30 seconds
-            const interval = setInterval(loadNotifications, 30000);
-            return () => clearInterval(interval);
+            fetchNotifications();
+
+            // Rely on WebSockets for real-time updates instead of polling
+            const unsubscribe = subscribe('NOTIFICATION_RECEIVED', () => {
+                console.log('[UserHome] Real-time notification received, refreshing...');
+                fetchNotifications();
+            });
+
+            return () => unsubscribe();
         }
-    }, [auth.user, fetchNotifications]);
+    }, [auth.user, fetchNotifications, subscribe]);
 
     useEffect(() => {
         if (movies.length > 0) {

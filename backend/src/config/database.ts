@@ -9,6 +9,7 @@ import { Movie } from '../models/Movie';
 import { Showtime } from '../models/Showtime';
 import { Ticket } from '../models/Ticket';
 import { WalletRequest } from '../models/WalletRequest';
+import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
 import { Notification } from '../models/Notification';
 
@@ -19,7 +20,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 export const sequelize = process.env.DATABASE_URL
     ? new Sequelize(process.env.DATABASE_URL, {
         dialect: 'postgres',
-        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction],
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction, Wallet],
         logging: false,
         dialectOptions: isProduction ? {
             ssl: {
@@ -35,6 +36,6 @@ export const sequelize = process.env.DATABASE_URL
         password: process.env.DB_PASSWORD || 'postgres',
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT || '5432'),
-        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction],
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction, Wallet],
         logging: false,
     });

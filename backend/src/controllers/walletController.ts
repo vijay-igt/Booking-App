@@ -2,31 +2,62 @@ import { Request, Response } from 'express';
 import { User } from '../models/User';
 import { WalletRequest } from '../models/WalletRequest';
 import { Transaction } from '../models/Transaction';
+import { Wallet } from '../models/Wallet';
 import { sequelize } from '../config/database';
-import { getProducer } from '../utils/kafka';
+import { getProducer } from '../config/kafkaClient';
 
 export const getBalance = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.id;
-        const user = await User.findByPk(userId);
+        const userId = req.user!.id;
+        const userRole = req.user!.role;
 
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+        let wallet;
+        let transactions;
+        let pendingRequests: WalletRequest[] = [];
+
+        if (userRole === 'user') {
+            const user = await User.findByPk(userId);
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+            wallet = await Wallet.findOne({ where: { userId, type: 'user' } });
+            console.log(`[getBalance] User ${userId} (role: ${userRole}) - Found Wallet:`, wallet ? wallet.toJSON() : 'Not Found');
+            transactions = await Transaction.findAll({
+                where: { userId },
+                order: [['createdAt', 'DESC']],
+                limit: 20
+            });
+            pendingRequests = await WalletRequest.findAll({
+                where: { userId, status: 'PENDING' },
+                order: [['createdAt', 'DESC']]
+            });
+        } else if (userRole === 'admin') { // Admin (Theater Owner)
+            wallet = await Wallet.findOne({ where: { userId, type: 'owner' } });
+            transactions = await Transaction.findAll({
+                where: { userId }, // Fetch all transactions for the owner
+                order: [['createdAt', 'DESC']],
+                limit: 20
+            });
+        } else if (userRole === 'super_admin') { // Super Admin
+            wallet = await Wallet.findOne({ where: { type: 'platform' } });
+            if (wallet) { // Ensure wallet is found before querying transactions
+                transactions = await Transaction.findAll({
+                    where: { userId: wallet.userId }, // Filter by the platform wallet's userId
+                    order: [['createdAt', 'DESC']],
+                    limit: 20
+                });
+            } else {
+                // If no platform wallet is found, there are no transactions to display
+                transactions = [];
+            }
         }
 
-        const transactions = await Transaction.findAll({
-            where: { userId },
-            order: [['createdAt', 'DESC']],
-            limit: 20
-        });
-
-        const pendingRequests = await WalletRequest.findAll({
-            where: { userId, status: 'PENDING' },
-            order: [['createdAt', 'DESC']]
-        });
+        if (!wallet) {
+            return res.status(404).json({ message: 'Wallet not found for this user role' });
+        }
 
         res.json({
-            balance: user.walletBalance,
+            balance: wallet.balance,
             transactions,
             pendingRequests
         });
@@ -38,7 +69,7 @@ export const getBalance = async (req: Request, res: Response) => {
 
 export const requestTopUp = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.id;
+        const userId = req.user!.id;
         const { amount, paymentMethod } = req.body;
 
         if (!amount || amount <= 0) {
@@ -111,17 +142,26 @@ export const approveRequest = async (req: Request, res: Response) => {
         request.status = 'APPROVED';
         await request.save({ transaction: t });
 
-        // 2. Update User Balance
+        // 2. Update User Wallet Balance (in Wallet model)
+        let userWallet = await Wallet.findOne({ where: { userId: request.userId, type: 'user' }, transaction: t });
+        if (!userWallet) {
+            console.warn(`User wallet not found for userId: ${request.userId}. Creating a new one.`);
+            userWallet = await Wallet.create({
+                userId: request.userId,
+                type: 'user',
+                balance: 0
+            }, { transaction: t });
+        }
+
+        const amountToAdd = parseFloat(request.amount as any); // Declare amountToAdd here
+        userWallet.balance = parseFloat(userWallet.balance as any) + amountToAdd;
+        await userWallet.save({ transaction: t });
+
+        // Also update the walletBalance field on the User model for consistency in auth context
         const user = await User.findByPk(request.userId, { transaction: t });
-        if (!user) throw new Error('User not found');
+        if (!user) throw new Error('User not found after wallet update'); // Ensure user exists
 
-        // Ensure walletBalance is treated as number 
-        // Sequelize DECIMAL types are returned as strings in JS sometimes, but we updated model to number type.
-        // Safer to parse float.
-        const currentBalance = parseFloat(user.walletBalance as any);
-        const amountToAdd = parseFloat(request.amount as any);
-
-        user.walletBalance = currentBalance + amountToAdd;
+        user.walletBalance = userWallet.balance;
         await user.save({ transaction: t });
 
         // 3. Create Transaction Record

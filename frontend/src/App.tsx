@@ -4,6 +4,7 @@ import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import AuthCallback from './pages/AuthCallback';
 import UserHome from './pages/UserHome';
 import SeatSelection from './pages/SeatSelection';
 import BookingHistory from './pages/BookingHistory';
@@ -13,7 +14,7 @@ import MovieDetails from './pages/MovieDetails';
 import WalletPage from './pages/WalletPage';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { useWebSocketService } from './services/websocketService';
+import { WebSocketProvider } from './context/WebSocketContext';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean }> = ({ children, adminOnly }) => {
   const auth = useAuth();
@@ -30,24 +31,23 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean 
     return <Navigate to="/login" replace />;
   }
 
-  if (adminOnly && auth.user?.role !== 'admin') {
+  if (adminOnly && auth.user?.role !== 'admin' && auth.user?.role !== 'super_admin') {
     return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;
 };
 
-
-
 const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
-        <WebSocketWrapper>
+        <WebSocketProvider>
           <div className="min-h-screen bg-[#0a0a0b] text-white font-sans">
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
               <Route path="/admin" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
 
               {/* Public Routes */}
@@ -63,16 +63,11 @@ const App: React.FC = () => {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
-        </WebSocketWrapper>
+        </WebSocketProvider>
         <ToastContainer />
       </AuthProvider>
     </Router>
   );
-};
-
-const WebSocketWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  useWebSocketService({});
-  return <>{children}</>;
 };
 
 export default App;

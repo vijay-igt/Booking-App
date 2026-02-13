@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
-import { getProducer } from '../utils/kafka';
+import { Wallet } from '../models/Wallet';
+import { getProducer } from '../config/kafkaClient';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
@@ -27,6 +28,14 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             passwordHash,
             role: role || 'user',
         });
+
+        // Create a wallet for the new user
+        await Wallet.create({
+            userId: newUser.id,
+            type: 'user',
+            balance: 0
+        });
+        console.log(`Wallet created for new user: ${newUser.id}`);
 
         console.log('User registered successfully:', newUser.id);
         res.status(201).json({ message: 'User created successfully', userId: newUser.id });
@@ -55,7 +64,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+        const token = jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '1d' });
 
         // Produce login event
         try {
@@ -77,7 +86,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             console.error('Failed to publish login event:', eventError);
         }
 
-        res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+        let walletBalance = '0.00';
+        const wallet = await Wallet.findOne({ where: { userId: user.id, type: user.role === 'user' ? 'user' : 'owner' } });
+        if (wallet) {
+            walletBalance = Number(wallet.balance).toFixed(2);
+        }
+
+        res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, walletBalance } });
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Server error', error });
@@ -86,7 +101,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
     try {
-        const userId = (req as any).user?.id;
+        const userId = req.user?.id;
         const { name, email } = req.body;
 
         if (!userId) {
@@ -115,6 +130,49 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
         res.json({ message: 'Profile updated successfully', user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
         console.error('Update profile error:', error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+};
+
+export const getUserById = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const user = await User.findByPk(id, {
+            attributes: ['id', 'name', 'email', 'role', 'walletBalance'] // Exclude sensitive fields
+        });
+
+        if (!user) {
+            res.status(404).json({ message: 'User not found' });
+            return;
+        }
+
+        res.json(user);
+    } catch (error) {
+        console.error('Get user by ID error:', error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+};
+
+export const getMe = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'name', 'email', 'role', 'walletBalance', 'commissionRate', 'googleId']
+        });
+
+        if (!user) {
+            res.status(404).json({ message: 'User not found' });
+            return;
+        }
+
+        res.json(user);
+    } catch (error) {
+        console.error('Get me error:', error);
         res.status(500).json({ message: 'Server error', error });
     }
 };

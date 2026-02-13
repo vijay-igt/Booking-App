@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ChevronLeft, User, Mail, Shield, LogOut, Ticket, ChevronRight, Crown, Edit2, Check, X } from 'lucide-react';
+import { ChevronLeft, User, Mail, Shield, LogOut, Ticket, ChevronRight, Edit2, Check, X, Briefcase } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import BottomNav from '../components/BottomNav';
 import api from '../api';
+import { AxiosError } from 'axios';
+
+interface ErrorResponseData {
+    message: string;
+}
 
 const Profile: React.FC = () => {
     const auth = useAuth();
@@ -12,6 +17,7 @@ const Profile: React.FC = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [newName, setNewName] = useState(auth.user?.name || '');
     const [isSaving, setIsSaving] = useState(false);
+    const [requestLoading, setRequestLoading] = useState(false);
 
     const handleLogout = () => {
         auth.logout();
@@ -26,9 +32,9 @@ const Profile: React.FC = () => {
 
         setIsSaving(true);
         try {
-            const response = await api.put('/auth/profile', { name: newName });
+            await api.put('/auth/profile', { name: newName });
             if (auth.user && auth.token) {
-                auth.login(auth.token, response.data.user);
+                 auth.fetchUser(auth.user.id, auth.token);
             }
             setIsEditing(false);
         } catch (error) {
@@ -36,6 +42,22 @@ const Profile: React.FC = () => {
             alert('Failed to update profile');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleRequestOwner = async () => {
+        if (!confirm('Are you sure you want to request to become a Theater Owner?')) return;
+        setRequestLoading(true);
+        try {
+            await api.post('/users/request-owner');
+            alert('Request submitted successfully! Please wait for Super Admin approval.');
+            if (auth.user && auth.token) auth.fetchUser(auth.user.id, auth.token); // Refresh user data
+        } catch (error) {
+            const axiosError = error as AxiosError<ErrorResponseData>;
+            console.error('Error requesting owner status:', axiosError);
+            alert(axiosError.response?.data?.message || 'Failed to submit request');
+        } finally {
+            setRequestLoading(false);
         }
     };
 
@@ -52,8 +74,8 @@ const Profile: React.FC = () => {
             label: 'Admin Dashboard',
             description: 'Manage system',
             onClick: () => navigate('/admin'),
-            show: auth.user?.role === 'admin',
-            badge: 'Admin'
+            show: auth.user?.role === 'admin' || auth.user?.role === 'super_admin',
+            badge: auth.user?.role === 'super_admin' ? 'Super Admin' : 'Admin'
         }
     ];
 
@@ -100,104 +122,129 @@ const Profile: React.FC = () => {
                                     <button
                                         onClick={handleUpdateProfile}
                                         disabled={isSaving}
-                                        className="p-1.5 bg-emerald-500 rounded-lg text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                                        className="p-1.5 bg-emerald-500 rounded-lg text-white"
                                     >
                                         <Check className="w-4 h-4" />
                                     </button>
                                     <button
                                         onClick={() => {
-                                            setIsEditing(false);
                                             setNewName(auth.user?.name || '');
+                                            setIsEditing(false);
                                         }}
-                                        className="p-1.5 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                                        className="p-1.5 bg-neutral-700 rounded-lg text-white"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-2 mb-1">
-                                    <h2 className="text-2xl font-bold truncate">{auth.user?.name || 'User'}</h2>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <h2 className="text-xl font-bold truncate">{auth.user?.name}</h2>
                                     <button
                                         onClick={() => setIsEditing(true)}
-                                        className="p-1 hover:text-emerald-400 transition-colors text-neutral-500"
+                                        className="p-1 text-neutral-400 hover:text-white"
                                     >
-                                        <Edit2 className="w-3.5 h-3.5" />
+                                        <Edit2 className="w-4 h-4" />
                                     </button>
                                 </div>
                             )}
-                            <div className="flex items-center gap-2 text-sm text-neutral-400 mb-2">
+                            <div className="flex items-center gap-2 text-neutral-400 text-sm">
                                 <Mail className="w-4 h-4" />
-                                <span className="truncate">{auth.user?.email || 'user@example.com'}</span>
+                                <span className="truncate">{auth.user?.email}</span>
                             </div>
-                            {auth.user?.role === 'admin' && (
-                                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/30">
-                                    <Crown className="w-3 h-3 text-amber-400" />
-                                    <span className="text-xs font-semibold text-amber-400">Administrator</span>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </motion.div>
 
+                {/* Partner Request Section */}
+                {auth.user?.role === 'user' && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                    >
+                        <div className="bg-neutral-900 rounded-2xl p-4 border border-neutral-800">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-500">
+                                        <Briefcase className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-medium text-white">Theater Partner</h3>
+                                        <p className="text-xs text-neutral-400">
+                                            {auth.user?.adminRequestStatus === 'PENDING' ? 'Request under review' :
+                                             auth.user?.adminRequestStatus === 'REJECTED' ? 'Request rejected' :
+                                             'Become a theater owner'}
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                {auth.user?.adminRequestStatus === 'PENDING' ? (
+                                    <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-500 text-xs font-medium">
+                                        Pending
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={handleRequestOwner}
+                                        disabled={requestLoading || auth.user?.adminRequestStatus === 'REJECTED'} // Maybe allow re-request later
+                                        className={`px-4 py-2 rounded-xl text-sm font-medium ${
+                                            auth.user?.adminRequestStatus === 'REJECTED'
+                                                ? 'bg-red-500/10 text-red-500 cursor-not-allowed'
+                                                : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform'
+                                        }`}
+                                    >
+                                        {requestLoading ? '...' : auth.user?.adminRequestStatus === 'REJECTED' ? 'Rejected' : 'Apply Now'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+
                 {/* Menu Items */}
-                <div className="space-y-2">
+                <div className="space-y-3">
                     {menuItems.filter(item => item.show).map((item, index) => (
                         <motion.button
-                            key={item.label}
+                            key={index}
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: index * 0.05 }}
+                            transition={{ delay: index * 0.1 + 0.2 }}
                             onClick={item.onClick}
-                            className="w-full p-4 rounded-2xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition-all flex items-center gap-4 group"
+                            className="w-full flex items-center gap-4 p-4 bg-neutral-900 rounded-2xl border border-neutral-800 active:scale-[0.98] transition-all hover:bg-neutral-800"
                         >
-                            <div className="w-12 h-12 rounded-xl bg-neutral-800 flex items-center justify-center group-hover:bg-emerald-500/10 group-hover:border-emerald-500/20 transition-all">
-                                <item.icon className="w-5 h-5 text-neutral-400 group-hover:text-emerald-400 transition-colors" />
+                            <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400">
+                                <item.icon className="w-5 h-5" />
                             </div>
                             <div className="flex-1 text-left">
-                                <h3 className="font-semibold mb-0.5 flex items-center gap-2">
+                                <div className="font-medium text-white flex items-center gap-2">
                                     {item.label}
                                     {item.badge && (
-                                        <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-400 uppercase">
+                                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 text-[10px] font-bold uppercase tracking-wider">
                                             {item.badge}
                                         </span>
                                     )}
-                                </h3>
-                                <p className="text-xs text-neutral-500">{item.description}</p>
+                                </div>
+                                <p className="text-xs text-neutral-400">{item.description}</p>
                             </div>
-                            <ChevronRight className="w-5 h-5 text-neutral-600 group-hover:text-neutral-400 transition-colors" />
+                            <ChevronRight className="w-5 h-5 text-neutral-600" />
                         </motion.button>
                     ))}
+
+                    <motion.button
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.4 }}
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-4 p-4 bg-red-500/5 rounded-2xl border border-red-500/10 active:scale-[0.98] transition-all hover:bg-red-500/10 mt-6"
+                    >
+                        <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center text-red-500">
+                            <LogOut className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 text-left">
+                            <div className="font-medium text-red-500">Logout</div>
+                            <p className="text-xs text-red-400/60">Sign out of your account</p>
+                        </div>
+                    </motion.button>
                 </div>
-
-                {/* Account Settings (Disabled) */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 opacity-50"
-                >
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-neutral-800 flex items-center justify-center">
-                            <Shield className="w-5 h-5 text-neutral-600" />
-                        </div>
-                        <div className="flex-1">
-                            <h3 className="font-semibold mb-0.5">Account Settings</h3>
-                            <p className="text-xs text-neutral-500">Coming soon</p>
-                        </div>
-                    </div>
-                </motion.div>
-
-                {/* Logout Button */}
-                <motion.button
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    onClick={handleLogout}
-                    className="w-full py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 font-semibold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-all"
-                >
-                    <LogOut className="w-5 h-5" />
-                    Sign Out
-                </motion.button>
             </div>
 
             <BottomNav />

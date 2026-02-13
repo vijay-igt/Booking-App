@@ -4,7 +4,7 @@ import { LockService } from '../services/lockService';
 export const lockSeats = async (req: Request, res: Response): Promise<void> => {
     try {
         const { showtimeId, seatIds } = req.body;
-        const userId = (req as any).user.id; // From auth middleware
+        const userId = req.user!.id; // From auth middleware
         console.log(`[LockController] User ${userId} attempting to lock seats ${seatIds} for showtime ${showtimeId}`);
 
         if (!showtimeId || !seatIds || !Array.isArray(seatIds)) {
@@ -33,11 +33,11 @@ export const unlockSeats = async (req: Request, res: Response): Promise<void> =>
         // but for now, releaseLock just deletes the key.
         // A malicious user could unlock others' seats if they guess the IDs?
         // Yes. So let's validate first.
-        const userId = (req as any).user.id;
+        const userId = req.user!.id;
         const isValid = await LockService.validateLock(showtimeId, seatIds, userId);
 
         if (isValid) {
-            await LockService.releaseLock(showtimeId, seatIds);
+            await LockService.releaseLock(showtimeId, seatIds, req.user!.id);
             res.status(200).json({ message: 'Seats unlocked' });
         } else {
             res.status(403).json({ message: 'You do not hold the lock for these seats' });

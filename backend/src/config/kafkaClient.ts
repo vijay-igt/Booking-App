@@ -1,12 +1,9 @@
 import { Kafka, Producer, Consumer, Partitioners } from 'kafkajs';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const kafka = new Kafka({
     clientId: 'booking-app',
-    brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
-    connectionTimeout: 10000, // 10 seconds to allow container to warm up
+    brokers: (process.env.KAFKA_BROKERS || process.env.KAFKA_BROKER || 'localhost:9092').split(','),
+    connectionTimeout: 10000,
 });
 
 let producerInstance: Producer | null = null;
@@ -19,13 +16,21 @@ export const getProducer = async (): Promise<Producer | null> => {
                 createPartitioner: Partitioners.LegacyPartitioner,
                 retry: {
                     initialRetryTime: 500,
-                    retries: 10 // More retries for cold starts
+                    retries: 10
                 }
             });
             await producerInstance.connect();
             console.log('✅ Kafka Producer connected');
         } catch (error) {
             console.error('❌ Failed to connect Kafka Producer:', (error as any).message);
+            producerInstance = null;
+            return null;
+        }
+    } else {
+        try {
+            await producerInstance.connect();
+        } catch (error) {
+            console.error('❌ Failed to reconnect Kafka Producer:', (error as any).message);
             producerInstance = null;
             return null;
         }
@@ -53,6 +58,15 @@ export const getConsumer = async (groupId: string): Promise<Consumer | null> => 
 };
 
 export const disconnectKafka = async () => {
-    if (producerInstance) await producerInstance.disconnect();
-    if (consumerInstance) await consumerInstance.disconnect();
+    if (producerInstance) {
+        await producerInstance.disconnect();
+        console.log('Kafka Producer disconnected');
+        producerInstance = null;
+    }
+    if (consumerInstance) {
+        await consumerInstance.disconnect();
+        console.log('Kafka Consumer disconnected');
+        consumerInstance = null;
+    }
 };
+

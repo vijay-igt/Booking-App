@@ -18,33 +18,34 @@ import {
     Star,
     Users,
     Bell,
-    Activity as ActivityIcon,
-    List,
-    BarChart3,
     Wallet
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
-import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Activity, Seat, SeatTierConfig } from '../types';
+import { useWebSocket } from '../context/WebSocketContext';
+import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Seat, SeatTierConfig, DashboardStats } from '../types';
 import { AxiosError } from 'axios';
 
 // Types are imported from '../types'
 
 const AdminDashboard: React.FC = () => {
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'activity' | 'wallet'>('theaters');
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet'>('theaters');
     const [walletRequests, setWalletRequests] = useState<WalletRequest[]>([]);
     const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
-    const [activities, setActivities] = useState<Activity[]>([]);
-    const [activityView, setActivityView] = useState<'list' | 'chart'>('list');
     const [theaters, setTheaters] = useState<Theater[]>([]);
     const [movies, setMovies] = useState<Movie[]>([]);
     const [showtimes, setShowtimes] = useState<Showtime[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [users, setUsers] = useState<User[]>([]);
+    const [userPage, setUserPage] = useState(1);
+    const [userTotalPages, setUserTotalPages] = useState(1);
+    const [userSearch, setUserSearch] = useState('');
+    const [userRoleFilter, setUserRoleFilter] = useState('all');
+    const [isUsersLoading, setIsUsersLoading] = useState(false);
     const [usersWithWallets, setUsersWithWallets] = useState<User[]>([]);
     const auth = useAuth();
     const navigate = useNavigate();
+    const { subscribe } = useWebSocket();
 
     const [newTheater, setNewTheater] = useState({ name: '', location: '' });
     const [newMovie, setNewMovie] = useState<Partial<Movie>>({
@@ -68,6 +69,23 @@ const AdminDashboard: React.FC = () => {
     const [notifForm, setNotifForm] = useState({ title: '', message: '', type: 'info' });
     const [isSendingNotif, setIsSendingNotif] = useState(false);
 
+    // Request Movie State
+    const [showRequestModal, setShowRequestModal] = useState(false);
+    const [requestMovieName, setRequestMovieName] = useState('');
+    const [requestNotes, setRequestNotes] = useState('');
+
+    // Commission Management State
+    const [editingCommissionUser, setEditingCommissionUser] = useState<User | null>(null);
+    const [newCommissionRate, setNewCommissionRate] = useState<number>(0);
+    const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+
+    const fetchDashboardStats = useCallback(async () => {
+        try {
+            const response = await api.get('/admin/stats');
+            setDashboardStats(response.data);
+        } catch (error: unknown) { console.error(error) }
+    }, []);
+
     const fetchBookings = useCallback(async () => {
         try {
             const response = await api.get('/admin/bookings');
@@ -84,7 +102,8 @@ const AdminDashboard: React.FC = () => {
 
     const fetchMovies = useCallback(async () => {
         try {
-            const response = await api.get('/movies');
+            // Fetch all movies so admins can schedule showtimes for any movie
+            const response = await api.get(`/movies`);
             setMovies(response.data);
         } catch (error: unknown) { console.error(error); }
     }, []);
@@ -93,13 +112,6 @@ const AdminDashboard: React.FC = () => {
         try {
             const response = await api.get('/admin/showtimes');
             setShowtimes(response.data);
-        } catch (error: unknown) { console.error(error); }
-    }, []);
-
-    const fetchActivities = useCallback(async () => {
-        try {
-            const response = await api.get('/admin/analytics');
-            setActivities(response.data);
         } catch (error: unknown) { console.error(error); }
     }, []);
 
@@ -126,21 +138,27 @@ const AdminDashboard: React.FC = () => {
         } catch (error: unknown) { console.error(error) }
     };
 
-    // Poll for activities when on the activity tab
-    useEffect(() => {
-        if (currentTab === 'activity') {
-            fetchActivities();
-            const interval = setInterval(fetchActivities, 3000);
-            return () => clearInterval(interval);
-        }
-    }, [currentTab, fetchActivities]);
-
     const fetchUsers = useCallback(async () => {
+        setIsUsersLoading(true);
         try {
-            const response = await api.get('/admin/users');
-            setUsers(response.data);
+            const response = await api.get('/admin/users', {
+                params: {
+                    page: userPage,
+                    limit: 10,
+                    search: userSearch,
+                    role: userRoleFilter
+                }
+            });
+            // Handle both old array format (fallback) and new paginated format
+            if (Array.isArray(response.data)) {
+                setUsers(response.data);
+            } else {
+                setUsers(response.data.users);
+                setUserTotalPages(response.data.totalPages);
+            }
         } catch (error: unknown) { console.error(error) }
-    }, []);
+        finally { setIsUsersLoading(false); }
+    }, [userPage, userSearch, userRoleFilter]);
 
     const fetchUsersWithWallets = useCallback(async () => {
         try {
@@ -154,13 +172,24 @@ const AdminDashboard: React.FC = () => {
         fetchMovies();
         fetchShowtimes();
         fetchBookings();
-        fetchUsers();
-        fetchWalletRequests();
-        fetchUsersWithWallets(); // Fetch users with wallets on initial load
+        fetchDashboardStats();
 
-        const walletRequestsInterval = setInterval(fetchWalletRequests, 5000); // Poll every 5 seconds
-        return () => clearInterval(walletRequestsInterval);
-    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers, fetchWalletRequests, fetchUsersWithWallets]);
+        if (auth.user?.role === 'super_admin') {
+            fetchUsers();
+            fetchWalletRequests();
+            fetchUsersWithWallets(); // Fetch users with wallets on initial load
+        }
+
+        if (auth.user?.role === 'super_admin') {
+            // Rely on WebSockets for real-time updates instead of polling
+            const unsubscribe = subscribe('ADMIN_TOPUP_REQUEST', () => {
+                console.log('[AdminDashboard] New top-up request received via WebSocket, refreshing...');
+                fetchWalletRequests();
+            });
+
+            return () => unsubscribe();
+        }
+    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers, fetchWalletRequests, fetchUsersWithWallets, fetchDashboardStats, auth.user?.role]);
 
     useEffect(() => {
         if (currentTab === 'wallet') {
@@ -202,7 +231,7 @@ const AdminDashboard: React.FC = () => {
 
                     uniqueRows.forEach((row: string) => {
                         const config = rowConfig.get(row);
-                        if (config && config.type !== currentType) {
+                        if (config && (config.type !== currentType || config.price !== currentPrice)) {
                             if (currentType) {
                                 reconstructedTiers.push({
                                     name: currentType,
@@ -230,7 +259,7 @@ const AdminDashboard: React.FC = () => {
                         setSeatTiers(reconstructedTiers);
                     }
                 }
-            } catch (error: unknown) {  
+            } catch (error: unknown) {
                 console.error("Failed to fetch layout", error);
             }
         };
@@ -280,7 +309,7 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.delete(`/admin/screens/${screenId}`);
             fetchTheaters();
-        } catch (error: unknown) { console.error(error) }   
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleGenerateSeats = async (screenId: number) => {
@@ -311,7 +340,7 @@ const AdminDashboard: React.FC = () => {
             } else {
                 setNewMovie({ ...newMovie, [field]: url });
             }
-        } catch (error: unknown) {  
+        } catch (error: unknown) {
             console.error('File upload failed:', error);
             alert('File upload failed');
         }
@@ -321,8 +350,8 @@ const AdminDashboard: React.FC = () => {
         try {
             await api.post('/admin/movies', newMovie);
             setNewMovie({ title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D' });
-            fetchMovies();      
-        }  catch (error: unknown) { console.error(error) }
+            fetchMovies();
+        } catch (error: unknown) { console.error(error) }
     };
 
     const handleUpdateMovie = async () => {
@@ -423,19 +452,58 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    const handleUpdateCommission = async () => {
+        if (!editingCommissionUser) return;
+        try {
+            await api.put(`/admin/users/${editingCommissionUser.id}/commission`, { commissionRate: newCommissionRate });
+            setEditingCommissionUser(null);
+            fetchUsers();
+            alert('Commission rate updated successfully!');
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to update commission rate.');
+        }
+    };
+
+    const handleApproveOwnerRequest = async (userId: number, action: 'APPROVE' | 'REJECT') => {
+        if (!confirm(`Are you sure you want to ${action.toLowerCase()} this request?`)) return;
+        try {
+            await api.put(`/admin/users/${userId}/approve`, { action });
+            fetchUsers();
+            fetchDashboardStats();
+            alert(`Request ${action === 'APPROVE' ? 'approved' : 'rejected'} successfully!`);
+        } catch (error: unknown) {
+            console.error(error);
+            alert(`Failed to ${action.toLowerCase()} request.`);
+        }
+    };
+
     const handleLogout = () => {
         auth.logout();
         navigate('/login');
     };
 
+    const handleRequestMovie = async () => {
+        if (!requestMovieName) return;
+        try {
+            await api.post('/admin/movies/request', { movieName: requestMovieName, notes: requestNotes });
+            alert('Request sent to Super Admin!');
+            setShowRequestModal(false);
+            setRequestMovieName('');
+            setRequestNotes('');
+        } catch (error) {
+            console.error(error);
+            alert('Failed to send request.');
+        }
+    };
+
     const tabs = [
         { id: 'theaters' as const, label: 'Theaters', icon: LayoutDashboard },
         { id: 'movies' as const, label: 'Movies', icon: Film },
-        { id: 'showtimes' as const, label: 'Showtimes', icon: Calendar },
+        ...(auth.user?.role !== 'super_admin' ? [{ id: 'showtimes' as const, label: 'Showtimes', icon: Calendar }] : []),
         { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon },
-        { id: 'users' as const, label: 'Users', icon: Users },
-        { id: 'activity' as const, label: 'Live Activity', icon: ActivityIcon },
-        { id: 'wallet' as const, label: 'Wallet', icon: Wallet }
+        ...(auth.user?.role === 'super_admin' ? [{ id: 'users' as const, label: 'Users', icon: Users }] : []),
+        ...(auth.user?.role === 'super_admin' ? [{ id: 'wallet' as const, label: 'Wallet', icon: Wallet }] : [])
     ];
 
     return (
@@ -461,6 +529,35 @@ const AdminDashboard: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {auth.user?.role === 'super_admin' && dashboardStats && 'totalRevenue' in dashboardStats ? (
+                            <>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Revenue</p>
+                                    <p className="text-xl font-bold text-emerald-500">₹{Number(dashboardStats.totalRevenue).toFixed(2)}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Owners</p>
+                                    <p className="text-xl font-bold text-white">{dashboardStats.totalOwners}</p>
+                                </div>
+                            </>
+                        ) : (auth.user?.role !== 'super_admin' && dashboardStats && 'totalBookings' in dashboardStats) ? (
+                            <>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Bookings</p>
+                                    <p className="text-xl font-bold text-white">{dashboardStats.totalBookings}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Earnings</p>
+                                    <p className="text-xl font-bold text-emerald-500">₹{Number(dashboardStats.totalEarnings).toFixed(2)}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Commission Paid</p>
+                                    <p className="text-xl font-bold text-amber-500">₹{Number(dashboardStats.commissionPaid).toFixed(2)}</p>
+                                </div>
+                            </>
+                        ) : null}
+
                         <div className="flex items-center gap-3">
                             <div className="hidden sm:flex flex-col items-end mr-2">
                                 <p className="text-sm font-semibold">{auth.user?.name}</p>
@@ -532,54 +629,56 @@ const AdminDashboard: React.FC = () => {
                             exit={{ opacity: 0, y: -20 }}
                             className="grid lg:grid-cols-[400px_1fr] gap-8"
                         >
-                            {/* Create Theater Form */}
-                            <div className="space-y-6">
-                                <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44">
-                                    <div className="space-y-1">
-                                        <h3 className="text-xl font-bold flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                                                <Plus className="w-4 h-4 text-emerald-500" />
-                                            </div>
-                                            Add Theater
-                                        </h3>
-                                        <p className="text-sm text-neutral-500">Register a new cinema location</p>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Theater Name</label>
-                                            <input
-                                                type="text"
-                                                placeholder="e.g. Cineplex Downtown"
-                                                value={newTheater.name}
-                                                onChange={(e) => setNewTheater({ ...newTheater, name: e.target.value })}
-                                                className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
-                                            />
+                            {/* Create Theater Form - Only for Theater Owners */}
+                            {auth.user?.role !== 'super_admin' && (
+                                <div className="space-y-6">
+                                    <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44">
+                                        <div className="space-y-1">
+                                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                                                    <Plus className="w-4 h-4 text-emerald-500" />
+                                                </div>
+                                                Add Theater
+                                            </h3>
+                                            <p className="text-sm text-neutral-500">Register a new cinema location</p>
                                         </div>
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Location</label>
-                                            <div className="relative">
-                                                <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-600" />
+
+                                        <div className="space-y-4">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Theater Name</label>
                                                 <input
                                                     type="text"
-                                                    placeholder="City, Area"
-                                                    value={newTheater.location}
-                                                    onChange={(e) => setNewTheater({ ...newTheater, location: e.target.value })}
-                                                    className="w-full h-14 pl-12 pr-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
+                                                    placeholder="e.g. Cineplex Downtown"
+                                                    value={newTheater.name}
+                                                    onChange={(e) => setNewTheater({ ...newTheater, name: e.target.value })}
+                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
                                                 />
                                             </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Location</label>
+                                                <div className="relative">
+                                                    <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-600" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="City, Area"
+                                                        value={newTheater.location}
+                                                        onChange={(e) => setNewTheater({ ...newTheater, location: e.target.value })}
+                                                        className="w-full h-14 pl-12 pr-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <motion.button
+                                                whileHover={{ scale: 1.02 }}
+                                                whileTap={{ scale: 0.98 }}
+                                                onClick={handleCreateTheater}
+                                                className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                            >
+                                                Create Theater
+                                            </motion.button>
                                         </div>
-                                        <motion.button
-                                            whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            onClick={handleCreateTheater}
-                                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
-                                        >
-                                            Create Theater
-                                        </motion.button>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
                             {/* Theater List */}
                             <div className="space-y-6">
@@ -605,16 +704,28 @@ const AdminDashboard: React.FC = () => {
                                                             </div>
                                                             {theater.location}
                                                         </div>
+                                                        {auth.user?.role === 'super_admin' && theater.owner && (
+                                                            <div className="text-sm text-neutral-500 flex items-center gap-2 pt-1">
+                                                                <div className="w-5 h-5 rounded-md bg-neutral-800 flex items-center justify-center">
+                                                                    <Users className="w-3 h-3" />
+                                                                </div>
+                                                                <span className="text-neutral-400">Owner:</span>
+                                                                <span className="text-emerald-500 font-medium">{theater.owner.name}</span>
+                                                                <span className="text-neutral-600 text-xs">({theater.owner.email})</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="flex gap-2">
-                                                        <motion.button
-                                                            whileHover={{ scale: 1.1 }}
-                                                            whileTap={{ scale: 0.9 }}
-                                                            onClick={() => handleDeleteTheater(theater.id)}
-                                                            className="w-10 h-10 rounded-xl bg-red-500/5 border border-red-500/10 flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-colors"
-                                                        >
-                                                            <Trash2 className="w-4.5 h-4.5" />
-                                                        </motion.button>
+                                                        {auth.user?.role !== 'super_admin' && (
+                                                            <motion.button
+                                                                whileHover={{ scale: 1.1 }}
+                                                                whileTap={{ scale: 0.9 }}
+                                                                onClick={() => handleDeleteTheater(theater.id)}
+                                                                className="w-10 h-10 rounded-xl bg-red-500/5 border border-red-500/10 flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-colors"
+                                                            >
+                                                                <Trash2 className="w-4.5 h-4.5" />
+                                                            </motion.button>
+                                                        )}
                                                     </div>
                                                 </div>
 
@@ -659,57 +770,61 @@ const AdminDashboard: React.FC = () => {
                                                                             </div>
                                                                             <span className="text-sm font-bold">{screen.name}</span>
                                                                         </div>
-                                                                        <div className="flex gap-1.5 opacity-0 group-hover/screen:opacity-100 transition-opacity">
-                                                                            <button
-                                                                                onClick={() => setGenScreenId(screen.id)}
-                                                                                className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold tracking-tight hover:bg-emerald-500/20 transition-colors"
-                                                                            >
-                                                                                Layout
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => setEditingScreen({ id: screen.id, name: screen.name })}
-                                                                                className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 flex items-center justify-center transition-colors"
-                                                                            >
-                                                                                <Edit2 className="w-3.5 h-3.5 text-neutral-300" />
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => handleDeleteScreen(screen.id)}
-                                                                                className="w-8 h-8 rounded-lg bg-red-400/5 hover:bg-red-400/10 flex items-center justify-center transition-colors"
-                                                                            >
-                                                                                <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                                                                            </button>
-                                                                        </div>
+                                                                        {auth.user?.role !== 'super_admin' && (
+                                                                            <div className="flex gap-1.5 opacity-0 group-hover/screen:opacity-100 transition-opacity">
+                                                                                <button
+                                                                                    onClick={() => setGenScreenId(screen.id)}
+                                                                                    className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold tracking-tight hover:bg-emerald-500/20 transition-colors"
+                                                                                >
+                                                                                    Layout
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => setEditingScreen({ id: screen.id, name: screen.name })}
+                                                                                    className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 flex items-center justify-center transition-colors"
+                                                                                >
+                                                                                    <Edit2 className="w-3.5 h-3.5 text-neutral-300" />
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => handleDeleteScreen(screen.id)}
+                                                                                    className="w-8 h-8 rounded-lg bg-red-400/5 hover:bg-red-400/10 flex items-center justify-center transition-colors"
+                                                                                >
+                                                                                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
                                                                     </>
                                                                 )}
                                                             </motion.div>
                                                         ))}
 
                                                         {/* Add Screen Inline */}
-                                                        {selectedTheaterId === theater.id ? (
-                                                            <div className="flex items-center gap-2 p-3 rounded-2xl bg-neutral-800/40 border border-dashed border-white/10">
-                                                                <input
-                                                                    type="text"
-                                                                    autoFocus
-                                                                    placeholder="Screen name..."
-                                                                    value={newScreenName}
-                                                                    onChange={(e) => setNewScreenName(e.target.value)}
-                                                                    className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 border border-transparent text-sm focus:outline-none focus:border-emerald-500/30"
-                                                                />
-                                                                <button onClick={() => handleAddScreen(theater.id)} className="px-4 h-10 rounded-xl bg-emerald-500 text-white text-xs font-bold">Add</button>
-                                                                <button onClick={() => { setSelectedTheaterId(null); setNewScreenName(''); }} className="w-10 h-10 rounded-xl bg-neutral-700 text-white flex items-center justify-center">
-                                                                    <X className="w-4 h-4" />
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <motion.button
-                                                                whileHover={{ scale: 1.01 }}
-                                                                whileTap={{ scale: 0.99 }}
-                                                                onClick={() => setSelectedTheaterId(theater.id)}
-                                                                className="flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/10 text-emerald-500/80 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all text-xs font-bold"
-                                                            >
-                                                                <Plus className="w-3.5 h-3.5" />
-                                                                Add New Screen
-                                                            </motion.button>
+                                                        {auth.user?.role !== 'super_admin' && (
+                                                            selectedTheaterId === theater.id ? (
+                                                                <div className="flex items-center gap-2 p-3 rounded-2xl bg-neutral-800/40 border border-dashed border-white/10">
+                                                                    <input
+                                                                        type="text"
+                                                                        autoFocus
+                                                                        placeholder="Screen name..."
+                                                                        value={newScreenName}
+                                                                        onChange={(e) => setNewScreenName(e.target.value)}
+                                                                        className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 border border-transparent text-sm focus:outline-none focus:border-emerald-500/30"
+                                                                    />
+                                                                    <button onClick={() => handleAddScreen(theater.id)} className="px-4 h-10 rounded-xl bg-emerald-500 text-white text-xs font-bold">Add</button>
+                                                                    <button onClick={() => { setSelectedTheaterId(null); setNewScreenName(''); }} className="w-10 h-10 rounded-xl bg-neutral-700 text-white flex items-center justify-center">
+                                                                        <X className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <motion.button
+                                                                    whileHover={{ scale: 1.01 }}
+                                                                    whileTap={{ scale: 0.99 }}
+                                                                    onClick={() => setSelectedTheaterId(theater.id)}
+                                                                    className="flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/10 text-emerald-500/80 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all text-xs font-bold"
+                                                                >
+                                                                    <Plus className="w-3.5 h-3.5" />
+                                                                    Add New Screen
+                                                                </motion.button>
+                                                            )
                                                         )}
                                                     </div>
                                                 </div>
@@ -728,157 +843,178 @@ const AdminDashboard: React.FC = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -20 }}
-                            className="grid lg:grid-cols-[400px_1fr] gap-8"
+                            className={`flex flex-col gap-6`}
                         >
-                            {/* Create Movie Form */}
-                            <div className="space-y-6">
-                                <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
-                                    <div className="space-y-1">
-                                        <h3 className="text-xl font-bold flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                                                <Plus className="w-4 h-4 text-emerald-500" />
-                                            </div>
-                                            Add Movie
-                                        </h3>
-                                        <p className="text-sm text-neutral-500">Register a new film in the system</p>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Title</label>
-                                            <input type="text" placeholder="Movie Title" value={newMovie.title || ''} onChange={(e) => setNewMovie({ ...newMovie, title: e.target.value })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Description</label>
-                                            <textarea placeholder="Plot summary..." value={newMovie.description || ''} onChange={(e) => setNewMovie({ ...newMovie, description: e.target.value })} className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all resize-none" />
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Genre</label>
-                                                <input type="text" placeholder="Action..." value={newMovie.genre || ''} onChange={(e) => setNewMovie({ ...newMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Mins</label>
-                                                <input type="number" placeholder="120" value={newMovie.duration || ''} onChange={(e) => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Rating</label>
-                                                <input type="text" placeholder="8.5" value={newMovie.rating || ''} onChange={(e) => setNewMovie({ ...newMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
-                                                <input type="date" value={newMovie.releaseDate || ''} onChange={(e) => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-xs" />
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-3 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Language</label>
-                                                <input type="text" placeholder="English" value={newMovie.language || ''} onChange={(e) => setNewMovie({ ...newMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Audio</label>
-                                                <input type="text" placeholder="Dolby Atmos" value={newMovie.audio || ''} onChange={(e) => setNewMovie({ ...newMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Format</label>
-                                                <input type="text" placeholder="IMAX 2D" value={newMovie.format || ''} onChange={(e) => setNewMovie({ ...newMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between items-center">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
-                                                <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
-                                                    Upload
-                                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', false)} />
-                                                </label>
-                                            </div>
-                                            <input type="text" placeholder="https://..." value={newMovie.posterUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between items-center">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
-                                                <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
-                                                    Upload
-                                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', false)} />
-                                                </label>
-                                            </div>
-                                            <input type="text" placeholder="https://..." value={newMovie.bannerUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
-                                        </div>
-                                        <motion.button
-                                            whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            onClick={handleCreateMovie}
-                                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
-                                        >
-                                            Create Movie
-                                        </motion.button>
-                                    </div>
+                            {/* Request Movie Button for Regular Admins */}
+                            {auth.user?.role !== 'super_admin' && (
+                                <div className="flex justify-end">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => setShowRequestModal(true)}
+                                        className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-bold transition-colors shadow-lg shadow-emerald-500/20"
+                                    >
+                                        <Plus className="w-5 h-5" />
+                                        Request Missing Movie
+                                    </motion.button>
                                 </div>
-                            </div>
+                            )}
 
-                            {/* Movie List */}
-                            <div className="grid md:grid-cols-2 gap-6">
-                                {movies.length === 0 ? (
-                                    <div className="col-span-full h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
-                                        <Film className="w-12 h-12 mb-3 opacity-20" />
-                                        <p className="font-medium">No movies added yet</p>
+                            <div className={`grid gap-8 ${auth.user?.role === 'super_admin' ? 'lg:grid-cols-[400px_1fr]' : 'grid-cols-1'}`}>
+                                {/* Create Movie Form */}
+                                {auth.user?.role === 'super_admin' && (
+                                    <div className="space-y-6">
+                                        <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
+                                            <div className="space-y-1">
+                                                <h3 className="text-xl font-bold flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                                                        <Plus className="w-4 h-4 text-emerald-500" />
+                                                    </div>
+                                                    Add Movie
+                                                </h3>
+                                                <p className="text-sm text-neutral-500">Register a new film in the system</p>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Title</label>
+                                                    <input type="text" placeholder="Movie Title" value={newMovie.title || ''} onChange={(e) => setNewMovie({ ...newMovie, title: e.target.value })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Description</label>
+                                                    <textarea placeholder="Plot summary..." value={newMovie.description || ''} onChange={(e) => setNewMovie({ ...newMovie, description: e.target.value })} className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all resize-none" />
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Genre</label>
+                                                        <input type="text" placeholder="Action..." value={newMovie.genre || ''} onChange={(e) => setNewMovie({ ...newMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Mins</label>
+                                                        <input type="number" placeholder="120" value={newMovie.duration || ''} onChange={(e) => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Rating</label>
+                                                        <input type="text" placeholder="8.5" value={newMovie.rating || ''} onChange={(e) => setNewMovie({ ...newMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
+                                                        <input type="date" value={newMovie.releaseDate || ''} onChange={(e) => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-xs" />
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Language</label>
+                                                        <input type="text" placeholder="English" value={newMovie.language || ''} onChange={(e) => setNewMovie({ ...newMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Audio</label>
+                                                        <input type="text" placeholder="Dolby Atmos" value={newMovie.audio || ''} onChange={(e) => setNewMovie({ ...newMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Format</label>
+                                                        <input type="text" placeholder="IMAX 2D" value={newMovie.format || ''} onChange={(e) => setNewMovie({ ...newMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
+                                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                                            Upload
+                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', false)} />
+                                                        </label>
+                                                    </div>
+                                                    <input type="text" placeholder="https://..." value={newMovie.posterUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center">
+                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
+                                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                                            Upload
+                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', false)} />
+                                                        </label>
+                                                    </div>
+                                                    <input type="text" placeholder="https://..." value={newMovie.bannerUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                </div>
+                                                <motion.button
+                                                    whileHover={{ scale: 1.02 }}
+                                                    whileTap={{ scale: 0.98 }}
+                                                    onClick={handleCreateMovie}
+                                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                                >
+                                                    Create Movie
+                                                </motion.button>
+                                            </div>
+                                        </div>
                                     </div>
-                                ) : (
-                                    movies.map((movie) => (
-                                        <motion.div
-                                            key={movie.id}
-                                            layout
-                                            initial={{ opacity: 0, scale: 0.95 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            className="group relative rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden hover:border-emerald-500/30 transition-all"
-                                        >
-                                            <div className="flex aspect-[1.8/1]">
-                                                <div className="w-1/3 relative overflow-hidden">
-                                                    <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent to-neutral-900"></div>
-                                                </div>
-                                                <div className="flex-1 p-5 space-y-3 flex flex-col justify-center">
-                                                    <div className="space-y-1">
-                                                        <h4 className="text-lg font-bold line-clamp-1 group-hover:text-emerald-400 transition-colors">{movie.title}</h4>
-                                                        <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">{movie.description}</p>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">{movie.genre}</span>
-                                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
-                                                            <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
-                                                            <span className="text-[10px] font-bold text-amber-500">{movie.rating}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
-                                                            <Clock className="w-2.5 h-2.5 text-blue-400" />
-                                                            <span className="text-[10px] font-bold text-blue-400">{movie.duration}m</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Action Buttons Overlay */}
-                                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.9 }}
-                                                    onClick={() => setEditingMovie(movie)}
-                                                    className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-emerald-500 hover:border-emerald-500 transition-all"
-                                                >
-                                                    <Edit2 className="w-4 h-4" />
-                                                </motion.button>
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.9 }}
-                                                    onClick={() => handleDeleteMovie(movie.id)}
-                                                    className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-red-500 hover:border-red-500 transition-all"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </motion.button>
-                                            </div>
-                                        </motion.div>
-                                    ))
                                 )}
+
+                                {/* Movie List */}
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    {movies.length === 0 ? (
+                                        <div className="col-span-full h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
+                                            <Film className="w-12 h-12 mb-3 opacity-20" />
+                                            <p className="font-medium">No movies added yet</p>
+                                        </div>
+                                    ) : (
+                                        movies.map((movie) => (
+                                            <motion.div
+                                                key={movie.id}
+                                                layout
+                                                initial={{ opacity: 0, scale: 0.95 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                className="group relative rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden hover:border-emerald-500/30 transition-all"
+                                            >
+                                                <div className="flex aspect-[1.8/1]">
+                                                    <div className="w-1/3 relative overflow-hidden">
+                                                        <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent to-neutral-900"></div>
+                                                    </div>
+                                                    <div className="flex-1 p-5 space-y-3 flex flex-col justify-center">
+                                                        <div className="space-y-1">
+                                                            <h4 className="text-lg font-bold line-clamp-1 group-hover:text-emerald-400 transition-colors">{movie.title}</h4>
+                                                            <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">{movie.description}</p>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">{movie.genre}</span>
+                                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
+                                                                <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
+                                                                <span className="text-[10px] font-bold text-amber-500">{movie.rating}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
+                                                                <Clock className="w-2.5 h-2.5 text-blue-400" />
+                                                                <span className="text-[10px] font-bold text-blue-400">{movie.duration}m</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Action Buttons Overlay */}
+                                                {auth.user?.role === 'super_admin' && (
+                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <motion.button
+                                                            whileHover={{ scale: 1.1 }}
+                                                            whileTap={{ scale: 0.9 }}
+                                                            onClick={() => setEditingMovie(movie)}
+                                                            className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-emerald-500 hover:border-emerald-500 transition-all"
+                                                        >
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </motion.button>
+                                                        <motion.button
+                                                            whileHover={{ scale: 1.1 }}
+                                                            whileTap={{ scale: 0.9 }}
+                                                            onClick={() => handleDeleteMovie(movie.id)}
+                                                            className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-red-500 hover:border-red-500 transition-all"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </motion.button>
+                                                    </div>
+                                                )}
+                                            </motion.div>
+                                        ))
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     )}
@@ -1044,212 +1180,240 @@ const AdminDashboard: React.FC = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -20 }}
-                            className="space-y-4"
-                        >
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-2xl font-black tracking-tighter uppercase italic">User Management</h3>
-                                <button
-                                    onClick={() => setNotifUserId(-1)}
-                                    className="px-6 h-12 rounded-2xl bg-amber-500 text-black font-black uppercase tracking-widest flex items-center gap-3 hover:bg-amber-400 transition-all shadow-lg shadow-amber-500/20"
-                                >
-                                    <Bell className="w-5 h-5" />
-                                    Notify All
-                                </button>
-                            </div>
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {users.map((user) => (
-                                    <div key={user.id} className="rounded-3xl bg-neutral-900 border border-white/5 p-6 hover:border-emerald-500/20 transition-all group">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                                                <Users className="w-6 h-6" />
-                                            </div>
-                                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest ${user.role === 'admin' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
-                                                {user.role}
-                                            </span>
-                                        </div>
-                                        <div className="space-y-1 mb-6">
-                                            <h4 className="font-bold text-lg group-hover:text-emerald-400 transition-colors uppercase tracking-tight">{user.name}</h4>
-                                            <p className="text-sm text-neutral-500 truncate">{user.email}</p>
-                                        </div>
-                                        <button
-                                            onClick={() => setNotifUserId(user.id)}
-                                            className="w-full h-11 rounded-xl bg-neutral-800 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-center gap-2 group/btn"
-                                        >
-                                            <Bell className="w-4 h-4 group-hover/btn:animate-bounce" />
-                                            <span className="text-xs font-bold">Notify User</span>
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {currentTab === 'activity' && (
-                        <motion.div
-                            key="activity"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
                             className="space-y-6"
                         >
-                            <div className="flex justify-between items-center mb-6">
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-black tracking-tighter uppercase italic">Live System Activity</h3>
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex gap-1">
-                                            {[1, 2, 3].map(i => (
-                                                <motion.div
-                                                    key={i}
-                                                    animate={{ height: [4, 12, 4] }}
-                                                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                                                    className="w-1 bg-emerald-500 rounded-full"
-                                                />
-                                            ))}
-                                        </div>
-                                        <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest">Kafka Stream: Online</p>
-                                    </div>
+                            {/* Toolbar */}
+                            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-neutral-900/50 p-4 rounded-3xl border border-white/5">
+                                <div className="relative w-full sm:w-96">
+                                    <input
+                                        type="text"
+                                        placeholder="Search users by name or email..."
+                                        value={userSearch}
+                                        onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
+                                        className="w-full h-12 pl-12 pr-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 focus:bg-neutral-900 transition-all text-white placeholder:text-neutral-500"
+                                    />
+                                    <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <div className="flex p-1 bg-neutral-900 border border-white/5 rounded-xl">
-                                        <button
-                                            onClick={() => setActivityView('list')}
-                                            className={`p-2 rounded-lg transition-all ${activityView === 'list' ? 'bg-emerald-500 text-white' : 'text-neutral-500 hover:text-white'}`}
-                                        >
-                                            <List className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={() => setActivityView('chart')}
-                                            className={`p-2 rounded-lg transition-all ${activityView === 'chart' ? 'bg-emerald-500 text-white' : 'text-neutral-500 hover:text-white'}`}
-                                        >
-                                            <BarChart3 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                    <button
-                                        onClick={fetchActivities}
-                                        className="p-3 rounded-2xl bg-neutral-900 border border-white/5 text-neutral-400 hover:text-white hover:border-white/10 transition-all"
+
+                                <div className="flex items-center gap-3 w-full sm:w-auto">
+                                    <select
+                                        value={userRoleFilter}
+                                        onChange={(e) => { setUserRoleFilter(e.target.value); setUserPage(1); }}
+                                        className="h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-white cursor-pointer"
                                     >
-                                        <Clock className="w-5 h-5" />
+                                        <option value="all">All Roles</option>
+                                        <option value="user">User</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+
+                                    <button
+                                        onClick={() => {
+                                            setNotifUserId(-1); // -1 for Broadcast
+                                            setNotifForm({ title: 'System Announcement', message: '', type: 'info' });
+                                        }}
+                                        className="h-12 px-6 rounded-2xl bg-amber-500 text-white font-bold hover:bg-amber-400 transition-colors flex items-center gap-2 whitespace-nowrap"
+                                    >
+                                        <Bell className="w-5 h-5" />
+                                        Notify All
                                     </button>
                                 </div>
                             </div>
 
-                            {activityView === 'chart' ? (
-                                <div className="grid lg:grid-cols-2 gap-6">
-                                    <div className="p-6 rounded-3xl bg-neutral-900 border border-white/5 h-[400px]">
-                                        <h4 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6">Event Distribution</h4>
-                                        <ResponsiveContainer width="100%" height="90%">
-                                            <BarChart data={Object.entries((activities || []).reduce((acc: Record<string, number>, curr) => {
-                                                 const type = curr.type?.replace('_', ' ') || 'OTHER';
-                                                 acc[type] = (acc[type] || 0) + 1;
-                                                 return acc;
-                                             }, {})).map(([name, value]: [string, number]) => ({ name, value }))}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                                                <XAxis dataKey="name" stroke="#525252" fontSize={10} tickLine={false} axisLine={false} />
-                                                <YAxis stroke="#525252" fontSize={10} tickLine={false} axisLine={false} />
-                                                <Tooltip
-                                                    contentStyle={{ backgroundColor: '#171717', border: '1px solid #ffffff10', borderRadius: '12px' }}
-                                                    itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
-                                                />
-                                                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                                                     {Object.entries((activities || []).reduce((acc: Record<string, number>, curr) => {
-                                                         const type = curr.type?.replace('_', ' ') || 'OTHER';
-                                                         acc[type] = (acc[type] || 0) + 1;
-                                                         return acc;
-                                                     }, {})).map((entry: [string, number], index: number) => (
-                                                        <Cell key={`cell-${index}`} fill={
-                                                            entry[0].includes('BOOKING') ? '#10b981' :
-                                                                entry[0].includes('LOGIN') ? '#3b82f6' :
-                                                                    entry[0].includes('MOVIE') ? '#f59e0b' : '#737373'
-                                                        } />
-                                                    ))}
-                                                </Bar>
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </div>
-
-                                    <div className="p-6 rounded-3xl bg-neutral-900 border border-white/5 h-[400px]">
-                                        <h4 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6">Activity Timeline</h4>
-                                        <ResponsiveContainer width="100%" height="90%">
-                                            <AreaChart data={Array.from({ length: 15 }).map((_, i) => {
-                                                const date = new Date();
-                                                date.setSeconds(date.getSeconds() - (i * 20));
-                                                const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                                const count = (activities || []).filter(a => {
-                                                    const activityDate = new Date(a.timestamp);
-                                                    return activityDate > new Date(date.getTime() - 20000) && activityDate <= date;
-                                                }).length;
-                                                return { time: timeString, count };
-                                            }).reverse()}>
-                                                <defs>
-                                                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                                                    </linearGradient>
-                                                </defs>
-                                                <XAxis dataKey="time" stroke="#525252" fontSize={10} tickLine={false} axisLine={false} />
-                                                <Tooltip
-                                                    contentStyle={{ backgroundColor: '#171717', border: '1px solid #ffffff10', borderRadius: '12px' }}
-                                                />
-                                                <Area type="monotone" dataKey="count" stroke="#10b981" fillOpacity={1} fill="url(#colorCount)" strokeWidth={3} />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {(activities || []).length === 0 ? (
-                                        <div className="h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
-                                            <ActivityIcon className="w-12 h-12 mb-3 opacity-20" />
-                                            <p className="font-medium tracking-tight">Listening for events...</p>
-                                        </div>
-                                    ) : (
-                                        activities.map((log, idx) => (
-                                            <motion.div
-                                                key={idx}
-                                                initial={{ opacity: 0, x: -20 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                className="group relative rounded-2xl bg-neutral-900 border border-white/5 p-4 hover:border-emerald-500/20 transition-all overflow-hidden"
-                                            >
-                                                <div className="relative z-10 flex items-center gap-4">
-                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${log.type?.includes('LOGIN') ? 'bg-blue-500/10 text-blue-400' :
-                                                        log.type?.includes('BOOKING') ? 'bg-emerald-500/10 text-emerald-400' :
-                                                            log.type?.includes('VIEW') ? 'bg-amber-500/10 text-amber-400' :
-                                                                'bg-neutral-800 text-neutral-400'
-                                                        }`}>
-                                                        {log.type?.includes('LOGIN') ? <Users className="w-5 h-5" /> :
-                                                            log.type?.includes('BOOKING') ? <TicketIcon className="w-5 h-5" /> :
-                                                                <ActivityIcon className="w-5 h-5" />}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 mb-0.5">
-                                                            <span className="text-sm font-bold tracking-tight text-white uppercase">{log.type?.replace('_', ' ') || 'SYSTEM EVENT'}</span>
-                                                            <span className="text-[10px] text-neutral-600 font-bold tabular-nums">
-                                                                {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '--:--'}
-                                                            </span>
+                            {/* Users Table */}
+                            <div className="bg-neutral-900 rounded-3xl border border-white/5 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="border-b border-white/5 bg-white/5">
+                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest">User</th>
+                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest">Role</th>
+                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest">Status</th>
+                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {isUsersLoading ? (
+                                                <tr>
+                                                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">
+                                                        <div className="flex justify-center items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0s' }}></div>
+                                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                                         </div>
-                                                        <p className="text-sm text-neutral-400 truncate font-medium">
-                                                            {log.email || log.title || log.userId || log.trackingId || 'System Action Processing'}
-                                                        </p>
+                                                    </td>
+                                                </tr>
+                                            ) : users.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">No users found.</td>
+                                                </tr>
+                                            ) : (
+                                                users.map((user) => (
+                                                    <tr key={user.id} className="hover:bg-white/5 transition-colors group">
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 border border-white/5">
+                                                                    <Users className="w-5 h-5" />
+                                                                </div>
+                                                                <div>
+                                                                    <p className="font-bold text-white">{user.name}</p>
+                                                                    <p className="text-xs text-neutral-500">{user.email}</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${user.role === 'super_admin'
+                                                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                                                : user.role === 'admin'
+                                                                    ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                                                    : 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                                                                }`}>
+                                                                {user.role}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            {user.adminRequestStatus === 'PENDING' && (
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        onClick={() => handleApproveOwnerRequest(user.id, 'APPROVE')}
+                                                                        className="px-3 py-1.5 bg-emerald-500 text-white text-xs font-bold rounded-lg hover:bg-emerald-400"
+                                                                    >
+                                                                        Approve
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleApproveOwnerRequest(user.id, 'REJECT')}
+                                                                        className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-bold rounded-lg hover:bg-red-500/20"
+                                                                    >
+                                                                        Reject
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            {user.role === 'admin' && (
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs text-neutral-400">Commission:</span>
+                                                                    <button
+                                                                        onClick={() => { setEditingCommissionUser(user); setNewCommissionRate(Number(user.commissionRate) || 10); }}
+                                                                        className="px-2 py-1 rounded bg-neutral-800 border border-white/10 hover:border-emerald-500/50 text-xs font-mono text-emerald-500 transition-colors"
+                                                                    >
+                                                                        {user.commissionRate}%
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            {user.adminRequestStatus === 'REJECTED' && (
+                                                                <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-1 rounded">Request Rejected</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right">
+                                                            <button
+                                                                onClick={() => { setNotifUserId(user.id); setNotifForm({ ...notifForm, title: 'Message from Admin' }); }}
+                                                                className="opacity-0 group-hover:opacity-100 px-3 py-1.5 rounded-lg bg-neutral-800 text-neutral-300 text-xs font-bold hover:bg-neutral-700 transition-all border border-white/5"
+                                                            >
+                                                                Message
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                        {/* Pagination Footer */}
+                                        <tfoot>
+                                            <tr>
+                                                <td colSpan={4} className="px-6 py-4 border-t border-white/5">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs text-neutral-500">
+                                                            Page <span className="text-white font-bold">{userPage}</span> of {userTotalPages}
+                                                        </span>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                                                                disabled={userPage === 1}
+                                                                className="px-4 py-2 rounded-xl bg-neutral-800 disabled:opacity-50 text-xs font-bold hover:bg-neutral-700 transition-colors"
+                                                            >
+                                                                Previous
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setUserPage(p => Math.min(userTotalPages, p + 1))}
+                                                                disabled={userPage === userTotalPages}
+                                                                className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 disabled:opacity-50 text-xs font-bold hover:bg-emerald-500/20 transition-colors"
+                                                            >
+                                                                Next
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <span className="text-[10px] text-neutral-700 font-black uppercase tracking-tighter">Event Logs</span>
-                                                    </div>
-                                                </div>
-                                                {idx === 0 && (
-                                                    <motion.div
-                                                        layoutId="newPulse"
-                                                        className="absolute inset-0 bg-emerald-500/5 pointer-events-none"
-                                                        animate={{ opacity: [0, 1, 0] }}
-                                                        transition={{ duration: 2, repeat: Infinity }}
-                                                    />
-                                                )}
-                                            </motion.div>
-                                        ))
-                                    )}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
                                 </div>
-                            )}
+                            </div>
                         </motion.div>
                     )}
+
+                    {/* Commission Edit Modal */}
+                    <AnimatePresence>
+                        {editingCommissionUser && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                            >
+                                <motion.div
+                                    initial={{ scale: 0.95, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    exit={{ scale: 0.95, opacity: 0 }}
+                                    className="w-full max-w-md bg-neutral-900 border border-white/10 rounded-3xl p-6 shadow-2xl"
+                                >
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-xl font-bold">Update Commission</h3>
+                                        <button onClick={() => setEditingCommissionUser(null)} className="p-2 rounded-xl bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700">
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-6">
+                                        <div className="p-4 rounded-2xl bg-neutral-800/50 border border-white/5">
+                                            <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider mb-1">Theater Owner</p>
+                                            <p className="font-bold text-lg">{editingCommissionUser.name}</p>
+                                            <p className="text-sm text-neutral-400">{editingCommissionUser.email}</p>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Commission Rate (%)</label>
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    value={newCommissionRate}
+                                                    onChange={(e) => setNewCommissionRate(parseFloat(e.target.value))}
+                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all font-bold text-lg"
+                                                />
+                                                <span className="absolute right-6 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">%</span>
+                                            </div>
+                                            <p className="text-xs text-neutral-500 px-1">
+                                                The percentage of revenue deducted from each booking as platform fee.
+                                            </p>
+                                        </div>
+
+                                        <div className="flex gap-3 pt-2">
+                                            <button
+                                                onClick={() => setEditingCommissionUser(null)}
+                                                className="flex-1 h-12 rounded-xl bg-neutral-800 font-bold text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={handleUpdateCommission}
+                                                className="flex-1 h-12 rounded-xl bg-emerald-500 font-bold text-white hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
+                                            >
+                                                Update Rate
+                                            </button>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {/* WALLET TAB */}
                     {currentTab === 'wallet' && (
@@ -1441,6 +1605,74 @@ const AdminDashboard: React.FC = () => {
                                     <input type="text" value={editingMovie.bannerUrl || ''} onChange={(e) => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
                                 </div>
                                 <button onClick={handleUpdateMovie} className="w-full h-12 rounded-xl bg-emerald-500 text-white font-semibold">Update Movie</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Request Movie Modal */}
+            <AnimatePresence>
+                {showRequestModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
+                        onClick={() => setShowRequestModal(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.9, y: 20 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-neutral-900 rounded-[2.5rem] p-8 max-w-md w-full border border-white/5 shadow-2xl"
+                        >
+                            <div className="flex items-center justify-between mb-8">
+                                <div className="space-y-1">
+                                    <h3 className="text-2xl font-black tracking-tighter uppercase italic">
+                                        Request Movie
+                                    </h3>
+                                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider">
+                                        Submit to Super Admin
+                                    </p>
+                                </div>
+                                <button onClick={() => setShowRequestModal(false)} className="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center hover:bg-neutral-700 transition-colors">
+                                    <X className="w-5 h-5 text-neutral-400" />
+                                </button>
+                            </div>
+
+                            <div className="space-y-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Movie Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Inception"
+                                        value={requestMovieName}
+                                        onChange={(e) => setRequestMovieName(e.target.value)}
+                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all font-bold"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Notes (Optional)</label>
+                                    <textarea
+                                        placeholder="Any specific details..."
+                                        value={requestNotes}
+                                        onChange={(e) => setRequestNotes(e.target.value)}
+                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all resize-none font-medium leading-relaxed"
+                                    />
+                                </div>
+
+                                <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={handleRequestMovie}
+                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all flex items-center justify-center gap-3"
+                                >
+                                    <Plus className="w-5 h-5" />
+                                    Send Request
+                                </motion.button>
                             </div>
                         </motion.div>
                     </motion.div>

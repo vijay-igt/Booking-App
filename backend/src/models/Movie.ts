@@ -1,5 +1,6 @@
-import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, HasMany } from 'sequelize-typescript';
+import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, HasMany, ForeignKey, BelongsTo } from 'sequelize-typescript';
 import { Showtime } from './Showtime';
+import { User } from './User';
 
 @Table({
     tableName: 'movies',
@@ -10,6 +11,16 @@ export class Movie extends Model {
     @AutoIncrement
     @Column(DataType.INTEGER)
     declare id: number;
+
+    @ForeignKey(() => User)
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: true,
+    })
+    declare ownerId: number;
+
+    @BelongsTo(() => User)
+    declare owner: User;
 
     @Column({
         type: DataType.STRING,

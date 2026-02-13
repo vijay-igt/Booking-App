@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateToken, adminAuth } from '../middleware/auth';
+import { authenticateToken, adminAuth, superAdminAuth } from '../middleware/auth';
 import {
     getBalance,
     requestTopUp,
@@ -16,11 +16,11 @@ const router = Router();
 router.get('/balance', authenticateToken, getBalance);
 router.post('/topup', authenticateToken, requestTopUp);
 
-// Admin Routes
-router.get('/admin/requests', authenticateToken, adminAuth, getPendingRequests);
-router.post('/admin/approve/:requestId', authenticateToken, adminAuth, approveRequest);
-router.post('/admin/reject/:requestId', authenticateToken, adminAuth, rejectRequest);
-router.get('/admin/users', authenticateToken, adminAuth, getUsersWithBalance);
-router.post('/admin/direct-topup', authenticateToken, adminAuth, directTopUp);
+// Admin Routes (Restricted to Super Admin)
+router.get('/admin/requests', authenticateToken, superAdminAuth, getPendingRequests);
+router.post('/admin/approve/:requestId', authenticateToken, superAdminAuth, approveRequest);
+router.post('/admin/reject/:requestId', authenticateToken, superAdminAuth, rejectRequest);
+router.get('/admin/users', authenticateToken, superAdminAuth, getUsersWithBalance);
+router.post('/admin/direct-topup', authenticateToken, superAdminAuth, directTopUp);
 
 export default router;

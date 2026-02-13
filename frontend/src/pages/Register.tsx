@@ -181,6 +181,19 @@ const Register: React.FC = () => {
                         </button>
                     </form>
 
+                    <div className="relative flex items-center justify-center my-6">
+                        <span className="absolute bg-neutral-950 px-3 text-sm text-neutral-500">Or continue with</span>
+                        <div className="w-full border-t border-neutral-800"></div>
+                    </div>
+
+                    <a
+                        href={`${import.meta.env.VITE_BACKEND_URL}/auth/google`}
+                        className="w-full h-14 rounded-2xl bg-neutral-800 text-white font-bold flex items-center justify-center gap-2 hover:bg-neutral-700 transition-colors"
+                    >
+                        <img src="https://www.svgrepo.com/show/355037/google.svg" alt="Google" className="w-6 h-6" />
+                        Sign up with Google
+                    </a>
+
                     {/* Footer */}
                     <p className="text-center text-sm text-neutral-500 mt-8">
                         Already have an account?{' '}

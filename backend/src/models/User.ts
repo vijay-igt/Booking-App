@@ -25,16 +25,23 @@ export class User extends Model {
 
     @Column({
         type: DataType.STRING,
+        allowNull: true, // Google ID is optional for non-Google users
+        unique: true, // Ensure Google ID is unique
+    })
+    declare googleId?: string;
+
+    @Column({
+        type: DataType.STRING,
         allowNull: false,
     })
     declare passwordHash: string;
 
     @Default('user')
     @Column({
-        type: DataType.ENUM('admin', 'user'),
+        type: DataType.ENUM('super_admin', 'admin', 'user'), // 'admin' is Theater Owner
         allowNull: false,
     })
-    declare role: 'admin' | 'user';
+    declare role: 'super_admin' | 'admin' | 'user';
 
     @Default(0.00)
     @Column({
@@ -42,4 +49,19 @@ export class User extends Model {
         allowNull: false,
     })
     declare walletBalance: number;
+
+    @Default(10.00)
+    @Column({
+        type: DataType.DECIMAL(5, 2),
+        allowNull: false,
+        comment: 'Commission percentage for theater owners (e.g., 10.00 for 10%)'
+    })
+    declare commissionRate: number;
+
+    @Default('NONE')
+    @Column({
+        type: DataType.ENUM('NONE', 'PENDING', 'APPROVED', 'REJECTED'),
+        allowNull: false,
+    })
+    declare adminRequestStatus: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
 }

@@ -1,5 +1,5 @@
-import { getConsumer } from '../utils/kafka';
-import { sendNotificationToUser, sendNotificationToAdmins } from '../services/websocketService';
+import { getConsumer, getProducer } from '../config/kafkaClient';
+import { sendNotificationToUser, sendNotificationToSuperAdmins } from '../services/websocketService';
 import { User } from '../models/User'; // Assuming User model is needed to determine admin status
 
 export const startWalletConsumer = async () => {
@@ -21,7 +21,7 @@ export const startWalletConsumer = async () => {
                 switch (data.type) {
                     case 'TOPUP_REQUESTED':
                         // Notify admins about a new top-up request
-                        sendNotificationToAdmins({
+                        sendNotificationToSuperAdmins({
                             type: 'ADMIN_TOPUP_REQUEST',
                             message: `New top-up request from user ${data.userId} for ${data.amount} via ${data.paymentMethod}.`,
                             requestId: data.requestId,

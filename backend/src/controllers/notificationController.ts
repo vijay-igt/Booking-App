@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import { Notification } from '../models/Notification';
 import { User } from '../models/User';
-import { getProducer } from '../utils/kafka';
+import { getProducer } from '../config/kafkaClient';
 
 export const getUserNotifications = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user?.id;
+        const userId = req.user?.id;
         if (!userId) {
             res.status(401).json({ message: 'Unauthorized' });
             return;
@@ -26,7 +26,7 @@ export const getUserNotifications = async (req: Request, res: Response) => {
 export const markAsRead = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const userId = (req as any).user?.id;
+        const userId = req.user?.id;
 
         const notification = await Notification.findOne({
             where: { id, userId }
@@ -49,7 +49,7 @@ export const markAsRead = async (req: Request, res: Response) => {
 
 export const markAllAsRead = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user?.id;
+        const userId = req.user?.id;
 
         await Notification.update(
             { isRead: true },
@@ -66,7 +66,7 @@ export const markAllAsRead = async (req: Request, res: Response) => {
 export const deleteNotification = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const userId = (req as any).user?.id;
+        const userId = req.user?.id;
 
         const result = await Notification.destroy({
             where: { id, userId }
@@ -86,7 +86,7 @@ export const deleteNotification = async (req: Request, res: Response) => {
 
 export const deleteAllNotifications = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user?.id;
+        const userId = req.user?.id;
 
         await Notification.destroy({
             where: { userId }

@@ -1,4 +1,5 @@
 import { sequelize } from './config/database';
+import { seedAdmin } from './seedAdmin';
 
 const resetDatabase = async () => {
     try {
@@ -8,6 +9,10 @@ const resetDatabase = async () => {
         // Force sync to drop tables and recreate them
         await sequelize.sync({ force: true });
         console.log('Database reset successfully. Schema is now up to date.');
+
+        // Seed Admins immediately after reset
+        await seedAdmin();
+        console.log('Admins seeded successfully.');
 
         process.exit(0);
     } catch (error) {

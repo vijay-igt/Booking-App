@@ -1,4 +1,4 @@
-import { getConsumer } from '../utils/kafka';
+import { getConsumer } from '../config/kafkaClient';
 import { User } from '../models/User';
 import { sendEmail } from '../services/emailService';
 
@@ -24,7 +24,7 @@ export const startEmailConsumer = async () => {
                         <p>Your booking for <strong>${data.movieTitle}</strong> has been confirmed!</p>
                         <p><strong>Booking ID:</strong> ${data.trackingId}</p>
                         <p><strong>Showtime:</strong> ${new Date(data.showtime).toLocaleString()}</p>
-                        <p><strong>Seats:</strong> ${data.seats.join(', ')}</p>
+                        <p><strong>Seats:</strong> ${(data.seats && Array.isArray(data.seats) ? data.seats.join(', ') : 'N/A')}</p>
                         <p>Thank you for booking with CinePass!</p>
                     `;
 

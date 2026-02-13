@@ -1,4 +1,4 @@
-import { getConsumer, getProducer } from '../utils/kafka';
+import { getConsumer, getProducer } from '../config/kafkaClient';
 import { Booking } from '../models/Booking';
 import { Seat } from '../models/Seat';
 import { Ticket } from '../models/Ticket';
@@ -9,6 +9,9 @@ import { Notification } from '../models/Notification';
 import { User } from '../models/User';
 import { Transaction } from '../models/Transaction';
 import { LockService } from '../services/lockService';
+import { Wallet } from '../models/Wallet';
+import { Screen } from '../models/Screen';
+import { Theater } from '../models/Theater';
 
 export const startSeatReservationConsumer = async () => {
     try {
@@ -34,27 +37,25 @@ export const startSeatReservationConsumer = async () => {
 
                 const transaction = await sequelize.transaction();
                 try {
-                    // WALLET PAYMENT PROCESSING
-                    if (paymentMethod === 'WALLET') {
-                        const user = await User.findByPk(userId, { transaction });
-                        if (!user || Number(user.walletBalance) < Number(totalAmount)) {
-                            throw new Error('Insufficient wallet balance');
-                        }
+                    // Fetch Showtime & Related Info first
+                    const showtime = await Showtime.findByPk(showtimeId, {
+                        include: [{
+                            model: Screen,
+                            include: [{
+                                model: Theater,
+                                include: [{ model: User, as: 'owner' }]
+                            }]
+                        }, {
+                            model: Movie
+                        }],
+                        transaction
+                    });
 
-                        // Deduct balance
-                        user.walletBalance = Number(user.walletBalance) - Number(totalAmount);
-                        await user.save({ transaction });
-
-                        // Record Transaction
-                        await Transaction.create({
-                            userId: user.id,
-                            amount: -Number(totalAmount),
-                            type: 'DEBIT',
-                            description: `Booking #${trackingId}`
-                        }, { transaction });
+                    if (!showtime || !showtime.screen || !showtime.screen.theater || !showtime.screen.theater.owner) {
+                        throw new Error('Theater owner or showtime not found');
                     }
 
-                    // 1. Check if ANY of these seats are already booked for THIS showtime
+                    // 1. FAIL FAST: Check if ANY of these seats are already booked for THIS showtime
                     const occupiedTickets = await Ticket.findAll({
                         where: {
                             seatId: seatIds,
@@ -69,7 +70,88 @@ export const startSeatReservationConsumer = async () => {
                         return;
                     }
 
-                    // 2. Create Booking
+                    // 2. PAYMENT PROCESSING (User Side)
+                    if (paymentMethod === 'WALLET') {
+                        let userWallet = await Wallet.findOne({ where: { userId, type: 'user' }, transaction });
+
+                        if (!userWallet) {
+                            const user = await User.findByPk(userId, { transaction });
+                            if (user) {
+                                userWallet = await Wallet.create({
+                                    userId,
+                                    type: 'user',
+                                    balance: user.walletBalance || 0
+                                }, { transaction });
+                            }
+                        }
+
+                        if (!userWallet || Number(userWallet.balance) < Number(totalAmount)) {
+                            throw new Error('Insufficient wallet balance');
+                        }
+
+                        // Deduct from User
+                        userWallet.balance = Number(userWallet.balance) - Number(totalAmount);
+                        await userWallet.save({ transaction });
+
+                        // Sync legacy User.walletBalance
+                        const user = await User.findByPk(userId, { transaction });
+                        if (user) {
+                            user.walletBalance = userWallet.balance;
+                            await user.save({ transaction });
+                        }
+
+                        // Record Debit Transaction
+                        await Transaction.create({
+                            userId,
+                            amount: -Number(totalAmount),
+                            type: 'DEBIT',
+                            description: `Booking #${trackingId}`
+                        }, { transaction });
+                    }
+
+                    // 3. DISTRIBUTE EARNINGS (Owner & Platform)
+                    const owner = showtime.screen.theater.owner;
+                    const commissionRate = Number(owner.commissionRate) || 10;
+                    const commissionAmount = (Number(totalAmount) * commissionRate) / 100;
+                    const ownerAmount = Number(totalAmount) - commissionAmount;
+
+                    // Update Owner Wallet
+                    let ownerWallet = await Wallet.findOne({ where: { userId: owner.id, type: 'owner' }, transaction });
+                    if (!ownerWallet) {
+                        ownerWallet = await Wallet.create({ userId: owner.id, type: 'owner', balance: 0 }, { transaction });
+                    }
+                    ownerWallet.balance = Number(ownerWallet.balance) + ownerAmount;
+                    await ownerWallet.save({ transaction });
+
+                    // Update Platform Wallet
+                    let platformWallet = await Wallet.findOne({ where: { type: 'platform' }, transaction });
+                    if (!platformWallet) {
+                        const superAdmin = await User.findOne({ where: { role: 'super_admin' }, transaction });
+                        platformWallet = await Wallet.create({
+                            type: 'platform',
+                            balance: 0,
+                            userId: superAdmin ? superAdmin.id : null
+                        }, { transaction });
+                    }
+                    platformWallet.balance = Number(platformWallet.balance) + commissionAmount;
+                    await platformWallet.save({ transaction });
+
+                    // Record Transactions
+                    await Transaction.create({
+                        userId: platformWallet.userId || 1,
+                        amount: Number(commissionAmount),
+                        type: 'CREDIT',
+                        description: `Platform Earnings from Booking #${trackingId}`
+                    }, { transaction });
+
+                    await Transaction.create({
+                        userId: owner.id,
+                        amount: Number(ownerAmount),
+                        type: 'CREDIT',
+                        description: `Earnings from Booking #${trackingId}`
+                    }, { transaction });
+
+                    // 4. Create Booking & Tickets
                     const booking = await Booking.create({
                         userId,
                         showtimeId,
@@ -77,7 +159,6 @@ export const startSeatReservationConsumer = async () => {
                         status: 'confirmed'
                     }, { transaction });
 
-                    // 3. Create Tickets (This marks the seats as taken for this showtime)
                     const tickets = seatIds.map((seatId: number) => ({
                         bookingId: booking.id,
                         showtimeId,
@@ -86,10 +167,15 @@ export const startSeatReservationConsumer = async () => {
                     await Ticket.bulkCreate(tickets, { transaction });
 
                     await transaction.commit();
+
                     console.log(`[ReservationConsumer] Successfully processed booking ${booking.id} for user ${userId}`);
 
+                    // Fetch Seat Labels for Email
+                    const seatObjects = await Seat.findAll({ where: { id: seatIds } });
+                    const seatLabels = seatObjects.map(s => `${s.row}${s.number}`);
+
                     // Release the locks after successful booking
-                    await LockService.releaseLock(showtimeId, seatIds);
+                    await LockService.releaseLock(showtimeId, seatIds, userId);
 
                     // 4. Produce booking confirmed event for other services (Email, Analytics)
                     try {
@@ -105,6 +191,9 @@ export const startSeatReservationConsumer = async () => {
                                         bookingId: booking.id,
                                         trackingId,
                                         type: 'BOOKING_CONFIRMED',
+                                        movieTitle: showtime.movie.title,
+                                        seats: seatLabels,
+                                        showtime: showtime.startTime,
                                         timestamp: new Date().toISOString()
                                     })
                                 }]

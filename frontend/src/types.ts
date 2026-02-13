@@ -11,12 +11,18 @@ export interface Movie {
     language?: string;
     audio?: string;
     format?: string;
+    ownerId?: number;
 }
 
 export interface Theater {
     id: number;
     name: string;
     location: string;
+    owner?: {
+        id: number;
+        name: string;
+        email: string;
+    };
     screens?: Screen[];
 }
 
@@ -60,6 +66,8 @@ export interface User {
     role: string;
     createdAt: string;
     walletBalance?: number;
+    commissionRate?: number;
+    adminRequestStatus?: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
 export interface WalletRequest {
@@ -108,3 +116,18 @@ export interface SeatTierConfig {
     rows: number;
     price: number;
 }
+
+export interface SuperAdminDashboardStats {
+    totalRevenue: number;
+    totalOwners: number;
+    pendingApprovals: number;
+}
+
+export interface AdminDashboardStats {
+    totalBookings: number;
+    totalEarnings: number;
+    commissionPaid: number;
+    commissionRate: number;
+}
+
+export type DashboardStats = SuperAdminDashboardStats | AdminDashboardStats;

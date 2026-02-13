@@ -5,11 +5,12 @@ import { Showtime } from '../models/Showtime';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
 import { Booking } from '../models/Booking';
-import { getProducer } from '../utils/kafka';
+import { getProducer } from '../config/kafkaClient';
 
 export const createMovie = async (req: Request, res: Response): Promise<void> => {
     try {
         const { title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate, language, audio, format } = req.body;
+        const userId = req.user?.id;
 
         if (duration <= 0) {
             res.status(400).json({ message: 'Duration must be greater than 0 minutes.' });
@@ -19,7 +20,20 @@ export const createMovie = async (req: Request, res: Response): Promise<void> =>
         // Standardize releaseDate
         const formattedDate = releaseDate === '' ? null : releaseDate;
 
-        const movie = await Movie.create({ title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate: formattedDate, language, audio, format });
+        const movie = await Movie.create({
+            title,
+            description,
+            genre,
+            duration,
+            rating,
+            posterUrl,
+            bannerUrl,
+            releaseDate: formattedDate,
+            language,
+            audio,
+            format,
+            ownerId: userId || null // Set ownerId if user is logged in
+        });
         res.status(201).json(movie);
     } catch (error) {
         res.status(500).json({ message: 'Error creating movie', error });
@@ -28,7 +42,18 @@ export const createMovie = async (req: Request, res: Response): Promise<void> =>
 
 export const getMovies = async (req: Request, res: Response): Promise<void> => {
     try {
-        const movies = await Movie.findAll();
+        const user = req.user;
+        const { ownerId } = req.query;
+        let whereClause: any = {};
+
+        if (ownerId === 'me' && user) {
+            whereClause.ownerId = user.id;
+        } else if (ownerId) {
+            // Optional: Allow filtering by specific owner ID (if needed for public profile)
+            whereClause.ownerId = ownerId;
+        }
+
+        const movies = await Movie.findAll({ where: whereClause });
         res.json(movies);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching movies', error });
@@ -58,7 +83,7 @@ export const getMovieById = async (req: Request, res: Response): Promise<void> =
 
         // Produce movie view event
         try {
-            const userId = (req as any).user?.id;
+            const userId = req.user?.id;
             const producer = await getProducer();
             if (producer) {
                 await producer.send({
@@ -88,10 +113,18 @@ export const updateMovie = async (req: Request, res: Response): Promise<void> =>
     try {
         const id = parseInt(req.params.id as string);
         const { title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate, language, audio, format } = req.body;
+        const user = req.user!;
+
         const movie = await Movie.findByPk(id);
 
         if (!movie) {
             res.status(404).json({ message: 'Movie not found' });
+            return;
+        }
+
+        // Ownership Check
+        if (user.role !== 'super_admin' && movie.ownerId !== user.id) {
+            res.status(403).json({ message: 'Access denied. You do not own this movie.' });
             return;
         }
 
@@ -114,6 +147,8 @@ export const updateMovie = async (req: Request, res: Response): Promise<void> =>
 export const deleteMovie = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id as string);
+        const user = req.user!;
+
         const movie = await Movie.findByPk(id, {
             include: [{
                 model: Showtime,
@@ -123,6 +158,12 @@ export const deleteMovie = async (req: Request, res: Response): Promise<void> =>
 
         if (!movie) {
             res.status(404).json({ message: 'Movie not found' });
+            return;
+        }
+
+        // Ownership Check
+        if (user.role !== 'super_admin' && movie.ownerId !== user.id) {
+            res.status(403).json({ message: 'Access denied. You do not own this movie.' });
             return;
         }
 

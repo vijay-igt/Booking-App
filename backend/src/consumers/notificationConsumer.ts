@@ -1,8 +1,9 @@
-import { getConsumer } from '../utils/kafka';
+import { getConsumer } from '../config/kafkaClient';
 import { Notification } from '../models/Notification';
 import { User } from '../models/User';
 import { Showtime } from '../models/Showtime';
 import { Movie } from '../models/Movie';
+import { sendNotificationToUser } from '../services/websocketService';
 
 export const startNotificationConsumer = async () => {
     try {
@@ -29,6 +30,7 @@ export const startNotificationConsumer = async () => {
                             isRead: false
                         });
                         console.log(`[Consumer] Created single notification for user ${data.userId}`);
+                        sendNotificationToUser(data.userId, { type: 'NOTIFICATION_RECEIVED', title: data.title });
                     }
 
                     else if (topic === 'broadcast-notifications') {
@@ -42,6 +44,7 @@ export const startNotificationConsumer = async () => {
                         }));
                         await Notification.bulkCreate(notifications);
                         console.log(`[Consumer] Broadcasted notification to ${users.length} users`);
+                        users.forEach(user => sendNotificationToUser(user.id, { type: 'NOTIFICATION_RECEIVED', title: data.title }));
                     }
 
                     else if (topic === 'booking-events' && data.type === 'BOOKING_CONFIRMED') {
@@ -61,6 +64,7 @@ export const startNotificationConsumer = async () => {
                             isRead: false
                         });
                         console.log(`[Consumer] Created booking notification for user ${data.userId}`);
+                        sendNotificationToUser(data.userId, { type: 'NOTIFICATION_RECEIVED', title: 'Booking Confirmed!' });
                     } else if (topic === 'wallet-updates' && data.type === 'TOPUP_APPROVED') {
                         await Notification.create({
                             userId: data.userId,
@@ -70,6 +74,7 @@ export const startNotificationConsumer = async () => {
                             isRead: false
                         });
                         console.log(`[Consumer] Created wallet top-up approved notification for user ${data.userId}`);
+                        sendNotificationToUser(data.userId, { type: 'NOTIFICATION_RECEIVED', title: 'Wallet Top-Up Approved!' });
                     } else if (topic === 'wallet-updates' && data.type === 'TOPUP_REJECTED') {
                         await Notification.create({
                             userId: data.userId,
@@ -79,6 +84,7 @@ export const startNotificationConsumer = async () => {
                             isRead: false
                         });
                         console.log(`[Consumer] Created wallet top-up rejected notification for user ${data.userId}`);
+                        sendNotificationToUser(data.userId, { type: 'NOTIFICATION_RECEIVED', title: 'Wallet Top-Up Rejected' });
                     }
                 } catch (error) {
                     console.error(`[Consumer] Error processing message from topic ${topic}:`, error);
