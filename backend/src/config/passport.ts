@@ -52,11 +52,14 @@ async (accessToken: string, refreshToken: string, profile: Profile, done: Verify
 }));
 
 // Passport session setup (not strictly needed for JWT, but good practice for Passport)
-passport.serializeUser((user: any, done) => {
+type SerializeDone = (err: any, id?: number) => void;
+type DeserializeDone = (err: any, user?: Express.User | false | null) => void;
+
+passport.serializeUser((user: Express.User, done: SerializeDone) => {
     done(null, user.id);
 });
 
-passport.deserializeUser(async (id: number, done) => {
+passport.deserializeUser(async (id: number, done: DeserializeDone) => {
     try {
         const user = await User.findByPk(id);
         done(null, user);

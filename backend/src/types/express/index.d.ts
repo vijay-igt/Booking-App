@@ -10,6 +10,10 @@ declare global {
             adminRequestStatus: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
             token?: string;
         }
+
+        interface Request {
+            user?: User;
+        }
     }
 }
 
