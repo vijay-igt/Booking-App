@@ -3,26 +3,38 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
-const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
+const redisUrl = process.env.REDIS_URL;
+const redisHost = process.env.REDIS_HOST;
+const isProduction = process.env.NODE_ENV === 'production';
+const shouldUseRedis = Boolean(redisUrl || redisHost || !isProduction);
 
-console.log(`[Redis] Connecting to ${REDIS_HOST}:${REDIS_PORT}...`);
+let redis: Redis | null = null;
 
-const redis = new Redis({
-    host: REDIS_HOST,
-    port: REDIS_PORT,
-    retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-    }
-});
+if (!shouldUseRedis) {
+    console.warn('[Redis] Disabled. Set REDIS_URL or REDIS_HOST to enable.');
+} else {
+    const host = redisHost || 'localhost';
+    const port = parseInt(process.env.REDIS_PORT || '6379');
 
-redis.on('connect', () => {
-    console.log('[Redis] Connected successfully');
-});
+    console.log(redisUrl ? '[Redis] Connecting with REDIS_URL...' : `[Redis] Connecting to ${host}:${port}...`);
 
-redis.on('error', (err) => {
-    console.error('[Redis] Connection error:', err);
-});
+    redis = redisUrl
+        ? new Redis(redisUrl, {
+            retryStrategy: (times) => Math.min(times * 50, 2000)
+        })
+        : new Redis({
+            host,
+            port,
+            retryStrategy: (times) => Math.min(times * 50, 2000)
+        });
+
+    redis.on('connect', () => {
+        console.log('[Redis] Connected successfully');
+    });
+
+    redis.on('error', (err) => {
+        console.error('[Redis] Connection error:', err);
+    });
+}
 
 export default redis;

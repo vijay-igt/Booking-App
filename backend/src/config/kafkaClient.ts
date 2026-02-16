@@ -1,15 +1,30 @@
 import { Kafka, Producer, Consumer, Partitioners } from 'kafkajs';
 
-const kafka = new Kafka({
+const brokersEnv = process.env.KAFKA_BROKERS || process.env.KAFKA_BROKER;
+const useLocalKafka = process.env.NODE_ENV !== 'production';
+const kafkaEnabled = Boolean(brokersEnv) || useLocalKafka;
+
+const kafka = kafkaEnabled ? new Kafka({
     clientId: 'booking-app',
-    brokers: (process.env.KAFKA_BROKERS || process.env.KAFKA_BROKER || 'localhost:9092').split(','),
+    brokers: (brokersEnv || 'localhost:9092').split(','),
     connectionTimeout: 10000,
-});
+}) : null;
 
 let producerInstance: Producer | null = null;
 let consumerInstance: Consumer | null = null;
+let kafkaDisabledLogged = false;
+
+const logKafkaDisabled = () => {
+    if (kafkaDisabledLogged) return;
+    console.warn('[Kafka] Disabled. Set KAFKA_BROKERS to enable.');
+    kafkaDisabledLogged = true;
+};
 
 export const getProducer = async (): Promise<Producer | null> => {
+    if (!kafka) {
+        logKafkaDisabled();
+        return null;
+    }
     if (!producerInstance) {
         try {
             producerInstance = kafka.producer({
@@ -39,6 +54,10 @@ export const getProducer = async (): Promise<Producer | null> => {
 };
 
 export const getConsumer = async (groupId: string): Promise<Consumer | null> => {
+    if (!kafka) {
+        logKafkaDisabled();
+        return null;
+    }
     try {
         const newConsumer = kafka.consumer({
             groupId,
@@ -69,4 +88,3 @@ export const disconnectKafka = async () => {
         consumerInstance = null;
     }
 };
-

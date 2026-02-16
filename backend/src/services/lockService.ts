@@ -28,6 +28,23 @@ end
 return 1
 `;
 
+type LockEntry = {
+    userId: number;
+    expiresAt: number;
+};
+
+const inMemoryLocks = new Map<string, LockEntry>();
+
+const getEntry = (key: string) => {
+    const entry = inMemoryLocks.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+        inMemoryLocks.delete(key);
+        return null;
+    }
+    return entry;
+};
+
 export class LockService {
     /**
      * Attempts to acquire locks for a set of seats.
@@ -36,6 +53,17 @@ export class LockService {
      */
     static async acquireLock(showtimeId: number, seatIds: number[], userId: number): Promise<boolean> {
         const keys = seatIds.map(seatId => `lock:showtime:${showtimeId}:seat:${seatId}`);
+
+        if (!redis) {
+            const now = Date.now();
+            for (const key of keys) {
+                const entry = getEntry(key);
+                if (entry && entry.userId !== userId) return false;
+            }
+            const expiresAt = now + LOCK_TTL_SECONDS * 1000;
+            keys.forEach(key => inMemoryLocks.set(key, { userId, expiresAt }));
+            return true;
+        }
 
         try {
             const result = await redis.eval(
@@ -56,6 +84,16 @@ export class LockService {
         const keys = seatIds.map(seatId => `lock:showtime:${showtimeId}:seat:${seatId}`);
         if (keys.length === 0) return;
 
+        if (!redis) {
+            keys.forEach((key) => {
+                const entry = getEntry(key);
+                if (entry && entry.userId === userId) {
+                    inMemoryLocks.delete(key);
+                }
+            });
+            return;
+        }
+
         try {
             await redis.eval(
                 RELEASE_LOCKS_LUA,
@@ -70,6 +108,13 @@ export class LockService {
 
     static async validateLock(showtimeId: number, seatIds: number[], userId: number): Promise<boolean> {
         const keys = seatIds.map(seatId => `lock:showtime:${showtimeId}:seat:${seatId}`);
+        if (!redis) {
+            return keys.every((key) => {
+                const entry = getEntry(key);
+                return entry?.userId === userId;
+            });
+        }
+
         const values = await redis.mget(...keys);
 
         // Every key must exist AND belong to the user
