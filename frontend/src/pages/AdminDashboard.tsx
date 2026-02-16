@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { useWebSocket } from '../context/WebSocketContext';
+import { useWebSocket } from '../context/WebSocketContextDefinition';
+import { requestForToken, onMessageListener } from '../config/firebase';
 import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Seat, SeatTierConfig, DashboardStats } from '../types';
 import { AxiosError } from 'axios';
 
@@ -66,7 +67,7 @@ const AdminDashboard: React.FC = () => {
     const [seatCols, setSeatCols] = useState(10);
 
     const [notifUserId, setNotifUserId] = useState<number | null>(null);
-    const [notifForm, setNotifForm] = useState({ title: '', message: '', type: 'info' });
+    const [notifForm, setNotifForm] = useState({ title: '', message: '', type: 'info', audience: 'users' });
     const [isSendingNotif, setIsSendingNotif] = useState(false);
 
     // Request Movie State
@@ -85,6 +86,32 @@ const AdminDashboard: React.FC = () => {
             setDashboardStats(response.data);
         } catch (error: unknown) { console.error(error) }
     }, []);
+
+    useEffect(() => {
+        const unsubscribe = onMessageListener((payload) => {
+            console.log('[AdminDashboard] Foreground notification received:', payload);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // Push Notification Registration for Admins
+    useEffect(() => {
+        if (auth.user) {
+            const registerPush = async () => {
+                console.log('[AdminDashboard] Attempting push registration...');
+                const token = await requestForToken();
+                if (token) {
+                    try {
+                        await api.post('/notifications/subscribe', { token, platform: 'web' });
+                        console.log('[Push] Admin token registered');
+                    } catch (err) {
+                        console.error('[Push] Failed to register admin token:', err);
+                    }
+                }
+            };
+            registerPush();
+        }
+    }, [auth.user]);
 
     const fetchBookings = useCallback(async () => {
         try {
@@ -189,7 +216,7 @@ const AdminDashboard: React.FC = () => {
 
             return () => unsubscribe();
         }
-    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers, fetchWalletRequests, fetchUsersWithWallets, fetchDashboardStats, auth.user?.role]);
+    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers, fetchWalletRequests, fetchUsersWithWallets, fetchDashboardStats, auth.user?.role, subscribe]);
 
     useEffect(() => {
         if (currentTab === 'wallet') {
@@ -427,12 +454,12 @@ const AdminDashboard: React.FC = () => {
             const endpoint = notifUserId === -1 ? '/admin/broadcast' : '/admin/notifications';
             const payload = notifUserId === -1
                 ? { ...notifForm }
-                : { userId: notifUserId, ...notifForm };
+                : { userId: notifUserId, title: notifForm.title, message: notifForm.message, type: notifForm.type };
 
             await api.post(endpoint, payload);
             alert(notifUserId === -1 ? 'Broadcast sent successfully!' : 'Notification sent successfully!');
             setNotifUserId(null);
-            setNotifForm({ title: '', message: '', type: 'info' });
+            setNotifForm({ title: '', message: '', type: 'info', audience: 'users' });
         } catch (error: unknown) {
             console.error(error);
             alert('Failed to send notification');
@@ -1209,7 +1236,7 @@ const AdminDashboard: React.FC = () => {
                                     <button
                                         onClick={() => {
                                             setNotifUserId(-1); // -1 for Broadcast
-                                            setNotifForm({ title: 'System Announcement', message: '', type: 'info' });
+                                            setNotifForm({ title: 'System Announcement', message: '', type: 'info', audience: 'users' });
                                         }}
                                         className="h-12 px-6 rounded-2xl bg-amber-500 text-white font-bold hover:bg-amber-400 transition-colors flex items-center gap-2 whitespace-nowrap"
                                     >
@@ -1702,7 +1729,13 @@ const AdminDashboard: React.FC = () => {
                                         {notifUserId === -1 ? 'Broadcast Message' : 'Send Notification'}
                                     </h3>
                                     <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider">
-                                        {notifUserId === -1 ? 'Alerting all users' : 'Targeted User Alert'}
+                                        {notifUserId === -1
+                                            ? notifForm.audience === 'admins'
+                                                ? 'Alerting all admins'
+                                                : notifForm.audience === 'both'
+                                                    ? 'Alerting users and admins'
+                                                    : 'Alerting all users'
+                                            : 'Targeted User Alert'}
                                     </p>
                                 </div>
                                 <button onClick={() => setNotifUserId(null)} className="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center hover:bg-neutral-700 transition-colors">
@@ -1730,6 +1763,21 @@ const AdminDashboard: React.FC = () => {
                                         ))}
                                     </div>
                                 </div>
+
+                                {notifUserId === -1 && (
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Target Audience</label>
+                                        <select
+                                            value={notifForm.audience}
+                                            onChange={(e) => setNotifForm({ ...notifForm, audience: e.target.value })}
+                                            className="w-full h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-white cursor-pointer"
+                                        >
+                                            <option value="users">All Users</option>
+                                            <option value="admins">All Admins</option>
+                                            <option value="both">Users and Admins</option>
+                                        </select>
+                                    </div>
+                                )}
 
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Title</label>

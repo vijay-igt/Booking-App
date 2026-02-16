@@ -1,29 +1,29 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import { useAuth } from './useAuth';
+import { WebSocketContext, type WebSocketMessage } from './WebSocketContextDefinition';
 
-interface WebSocketMessage {
-    type: string;
-    [key: string]: any;
-}
+const getWebSocketUrl = () => {
+    const envWs = import.meta.env.VITE_WS_URL;
+    if (envWs) return envWs;
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (!apiUrl) return 'ws://localhost:5000';
+    const normalized = apiUrl.endsWith('/api') ? apiUrl.slice(0, -4) : apiUrl;
+    if (normalized.startsWith('https://')) return normalized.replace('https://', 'wss://');
+    if (normalized.startsWith('http://')) return normalized.replace('http://', 'ws://');
+    return normalized;
+};
 
-interface WebSocketContextType {
-    isConnected: boolean;
-    sendMessage: (message: WebSocketMessage) => void;
-    subscribe: (type: string, callback: (payload: any) => void) => () => void;
-}
-
-const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined);
-
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
+const WS_URL = getWebSocketUrl();
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user } = useAuth();
     const [isConnected, setIsConnected] = useState(false);
     const ws = useRef<WebSocket | null>(null);
-    const listeners = useRef<Map<string, Set<(payload: any) => void>>>(new Map());
+    const listeners = useRef<Map<string, Set<(payload: WebSocketMessage) => void>>>(new Map());
     const reconnectAttempts = useRef(0);
     const MAX_RECONNECT_ATTEMPTS = 5;
+    const connectRef = useRef<() => void>(() => undefined);
 
     const connect = useCallback(() => {
         if (!user) return;
@@ -41,7 +41,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
         socket.onmessage = (event) => {
             try {
-                const message: WebSocketMessage = JSON.parse(event.data);
+                const message = JSON.parse(event.data) as WebSocketMessage;
                 console.log('[WebSocket] Message received:', message);
 
                 const typeListeners = listeners.current.get(message.type);
@@ -69,7 +69,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
                 setTimeout(() => {
                     reconnectAttempts.current++;
-                    connect();
+                    connectRef.current();
                 }, timeout);
             }
         };
@@ -81,6 +81,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
         ws.current = socket;
     }, [user]);
+
+    useEffect(() => {
+        connectRef.current = connect;
+    }, [connect]);
 
     useEffect(() => {
         if (user) {
@@ -101,7 +105,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
     }, []);
 
-    const subscribe = useCallback((type: string, callback: (payload: any) => void) => {
+    const subscribe = useCallback((type: string, callback: (payload: WebSocketMessage) => void) => {
         if (!listeners.current.has(type)) {
             listeners.current.set(type, new Set());
         }
@@ -123,12 +127,4 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             {children}
         </WebSocketContext.Provider>
     );
-};
-
-export const useWebSocket = () => {
-    const context = useContext(WebSocketContext);
-    if (!context) {
-        throw new Error('useWebSocket must be used within a WebSocketProvider');
-    }
-    return context;
 };

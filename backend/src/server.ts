@@ -32,19 +32,36 @@ import { initializeWebSocket } from './services/websocketService';
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS configuration - Allow local dev and production frontend
-const corsOptions = {
-    origin: process.env.FRONTEND_URL,
+const rawOrigins = process.env.FRONTEND_URL || '';
+const allowedOrigins = rawOrigins.split(',').map(origin => origin.trim()).filter(Boolean);
+const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+        if (!origin) {
+            callback(null, true);
+            return;
+        }
+        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
 };
 
+app.set('trust proxy', 1);
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Session middleware for Passport
+const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET;
+if (!sessionSecret) {
+    throw new Error('SESSION_SECRET or JWT_SECRET is required');
+}
+
 app.use(session({
-    secret: process.env.SESSION_SECRET!,
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: { secure: process.env.NODE_ENV === 'production' } // Use secure cookies in production
@@ -71,7 +88,10 @@ app.use('/api/users', userRoutes);
 
 // Google OAuth routes
 app.get('/auth/google',
-    passport.authenticate('google', { scope: ['profile', 'email'] })
+    passport.authenticate('google', {
+        scope: ['profile', 'email'],
+        prompt: 'select_account'
+    })
 );
 
 app.get('/auth/google/callback',

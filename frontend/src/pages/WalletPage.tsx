@@ -3,7 +3,7 @@ import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, Plus, Clock, ArrowUpRight, ArrowDownLeft, CreditCard, XCircle, AlertCircle } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
-import { useWebSocket } from '../context/WebSocketContext';
+import { useWebSocket } from '../context/WebSocketContextDefinition';
 import { useAuth } from '../context/useAuth';
 
 interface NotificationPayload {
@@ -40,24 +40,6 @@ const WalletPage: React.FC = () => {
     const [topUpAmount, setTopUpAmount] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('UPI');
 
-    const onWalletUpdate = (update: NotificationPayload) => {
-        console.log('WalletPage received WebSocket update:', update);
-        if (update.type === 'USER_TOPUP_APPROVED') {
-            setBalance(update.newBalance ?? 0);
-            // Remove the approved request from pending requests
-            setRequests(prev => prev.filter(req => req.id !== Number(update.requestId)));
-            // Optionally refetch transactions or add a new transaction entry
-            fetchWalletData(); // Refetch all data to ensure consistency
-        } else if (update.type === 'USER_TOPUP_REJECTED') {
-            // Remove the rejected request from pending requests
-            setRequests(prev => prev.filter(req => req.id !== Number(update.requestId)));
-        } else if (update.type === 'TOPUP_REQUESTED' && user?.role === 'admin') {
-            // Admin specific: if an admin is on this page, they might see new requests
-            // For users, this is handled by the initial fetch and then approval/rejection
-            fetchWalletData(); // Refetch all data to ensure consistency
-        }
-    };
-
     const fetchWalletData = useCallback(async () => {
         try {
             const response = await api.get('/wallet/balance');
@@ -70,6 +52,19 @@ const WalletPage: React.FC = () => {
             setLoading(false);
         }
     }, []);
+
+    const onWalletUpdate = useCallback((update: NotificationPayload) => {
+        console.log('WalletPage received WebSocket update:', update);
+        if (update.type === 'USER_TOPUP_APPROVED') {
+            setBalance(update.newBalance ?? 0);
+            setRequests(prev => prev.filter(req => req.id !== Number(update.requestId)));
+            fetchWalletData();
+        } else if (update.type === 'USER_TOPUP_REJECTED') {
+            setRequests(prev => prev.filter(req => req.id !== Number(update.requestId)));
+        } else if (update.type === 'TOPUP_REQUESTED' && user?.role === 'admin') {
+            fetchWalletData();
+        }
+    }, [fetchWalletData, user?.role]);
 
     const { subscribe } = useWebSocket();
 

@@ -6,7 +6,8 @@ import { Search, Bell, ChevronRight, Clock, Sparkles, User, LogIn } from 'lucide
 import BottomNav from '../components/BottomNav';
 import NotificationCenter from '../components/NotificationCenter';
 import { useAuth } from '../context/useAuth';
-import { useWebSocket } from '../context/WebSocketContext';
+import { useWebSocket } from '../context/WebSocketContextDefinition';
+import { requestForToken, onMessageListener } from '../config/firebase';
 
 interface Movie {
     id: number;
@@ -41,6 +42,8 @@ const UserHome: React.FC = () => {
     const auth = useAuth();
     const { subscribe } = useWebSocket();
 
+    console.log('[UserHome] Rendered. UseAuth user:', auth.user?.email);
+
     useEffect(() => {
         const fetchMovies = async () => {
             try {
@@ -67,17 +70,54 @@ const UserHome: React.FC = () => {
     }, [auth.user, setUnreadCount]);
 
     useEffect(() => {
-        if (auth.user) {
+        const unsubscribe = onMessageListener((payload) => {
+            console.log('[UserHome] Foreground notification received:', payload);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    useEffect(() => {
+        if (!auth.user) return;
+        let isActive = true;
+
+        const loadUnreadCount = async () => {
+            try {
+                const response = await api.get('/notifications');
+                if (!isActive) return;
+                const unread = response.data.filter((n: Notification) => !n.isRead).length;
+                setUnreadCount(unread);
+            } catch (error) {
+                console.error('Error fetching unread count:', error);
+            }
+        };
+
+        const registerPush = async () => {
+            const token = await requestForToken();
+            if (token) {
+                try {
+                    await api.post('/notifications/subscribe', {
+                        token,
+                        platform: 'web'
+                    });
+                    console.log('[Push] Registered token with backend:', token);
+                } catch (err) {
+                    console.error('[Push] Failed to sync token with backend:', err);
+                }
+            }
+        };
+
+        loadUnreadCount();
+        registerPush();
+
+        const unsubscribe = subscribe('NOTIFICATION_RECEIVED', () => {
+            console.log('[UserHome] Real-time notification received, refreshing...');
             fetchNotifications();
+        });
 
-            // Rely on WebSockets for real-time updates instead of polling
-            const unsubscribe = subscribe('NOTIFICATION_RECEIVED', () => {
-                console.log('[UserHome] Real-time notification received, refreshing...');
-                fetchNotifications();
-            });
-
-            return () => unsubscribe();
-        }
+        return () => {
+            isActive = false;
+            unsubscribe();
+        };
     }, [auth.user, fetchNotifications, subscribe]);
 
     useEffect(() => {
@@ -158,6 +198,7 @@ const UserHome: React.FC = () => {
                                 <span>Sign In</span>
                             </motion.button>
                         )}
+
 
                         <motion.button
                             whileTap={{ scale: 0.9 }}
