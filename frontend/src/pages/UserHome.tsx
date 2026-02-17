@@ -141,20 +141,13 @@ const UserHome: React.FC = () => {
             <header className="px-5 pt-4 pb-3">
                 <div className="flex items-center justify-between mb-6">
                     <div>
-                        <motion.p
-                            initial={{ opacity: 0, y: -10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-neutral-500 text-sm font-medium mb-0.5"
-                        >
-                            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}
-                        </motion.p>
                         <motion.h1
                             initial={{ opacity: 0, y: -10 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.1 }}
                             className="text-2xl font-bold"
                         >
-                            Book Your Show
+                            Welcome to Cinepass
                         </motion.h1>
                     </div>
                     <div className="flex items-center gap-3">
