@@ -33,11 +33,6 @@ messaging.onBackgroundMessage((payload) => {
     return self.registration.showNotification(title, notificationOptions);
 });
 
-// Foreground message listener (optional in SW, but good for logging)
-self.addEventListener('push', (event) => {
-    console.log('[ServiceWorker] Push event received:', event);
-});
-
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
     event.waitUntil(
