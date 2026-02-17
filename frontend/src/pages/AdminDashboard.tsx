@@ -23,7 +23,7 @@ import {
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../context/WebSocketContextDefinition';
-import { requestForToken, onMessageListener } from '../config/firebase';
+import { onMessageListener } from '../config/firebase';
 import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Seat, SeatTierConfig, DashboardStats } from '../types';
 import { AxiosError } from 'axios';
 
@@ -93,25 +93,6 @@ const AdminDashboard: React.FC = () => {
         });
         return () => unsubscribe();
     }, []);
-
-    // Push Notification Registration for Admins
-    useEffect(() => {
-        if (auth.user) {
-            const registerPush = async () => {
-                console.log('[AdminDashboard] Attempting push registration...');
-                const token = await requestForToken();
-                if (token) {
-                    try {
-                        await api.post('/notifications/subscribe', { token, platform: 'web' });
-                        console.log('[Push] Admin token registered');
-                    } catch (err) {
-                        console.error('[Push] Failed to register admin token:', err);
-                    }
-                }
-            };
-            registerPush();
-        }
-    }, [auth.user]);
 
     const fetchBookings = useCallback(async () => {
         try {

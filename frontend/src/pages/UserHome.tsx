@@ -7,7 +7,7 @@ import BottomNav from '../components/BottomNav';
 import NotificationCenter from '../components/NotificationCenter';
 import { useAuth } from '../context/useAuth';
 import { useWebSocket } from '../context/WebSocketContextDefinition';
-import { requestForToken, onMessageListener } from '../config/firebase';
+import { onMessageListener } from '../config/firebase';
 
 interface Movie {
     id: number;
@@ -91,23 +91,7 @@ const UserHome: React.FC = () => {
             }
         };
 
-        const registerPush = async () => {
-            const token = await requestForToken();
-            if (token) {
-                try {
-                    await api.post('/notifications/subscribe', {
-                        token,
-                        platform: 'web'
-                    });
-                    console.log('[Push] Registered token with backend:', token);
-                } catch (err) {
-                    console.error('[Push] Failed to sync token with backend:', err);
-                }
-            }
-        };
-
         loadUnreadCount();
-        registerPush();
 
         const unsubscribe = subscribe('NOTIFICATION_RECEIVED', () => {
             console.log('[UserHome] Real-time notification received, refreshing...');

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { AuthContext, type User } from './AuthContextDefinition';
 import { jwtDecode } from 'jwt-decode';
-import api from '../api'; // Assuming you have an api service configured
+import api from '../api';
+import { requestForToken } from '../config/firebase';
 
 interface DecodedToken {
     id: number;
@@ -20,6 +21,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(null);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('pushToken');
+        localStorage.removeItem('pushUserId');
     }, []);
 
     const fetchUser = useCallback(async (userId: number, authToken: string) => {
@@ -76,6 +79,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
         initializeAuth();
     }, [fetchUser, logout]);
+
+    useEffect(() => {
+        if (!user || !token) return;
+        let isActive = true;
+
+        const registerPush = async () => {
+            const currentToken = await requestForToken();
+            if (!currentToken || !isActive) return;
+
+            const storedToken = localStorage.getItem('pushToken');
+            const storedUserId = localStorage.getItem('pushUserId');
+            if (storedToken === currentToken && storedUserId === String(user.id)) return;
+
+            try {
+                await api.post('/notifications/subscribe', {
+                    token: currentToken,
+                    platform: 'web'
+                });
+                localStorage.setItem('pushToken', currentToken);
+                localStorage.setItem('pushUserId', String(user.id));
+            } catch (error) {
+                console.error('[Push] Failed to sync token with backend:', error);
+            }
+        };
+
+        registerPush();
+
+        return () => {
+            isActive = false;
+        };
+    }, [user, token]);
 
     const login = useCallback(async (newToken: string, userData: User) => {
         console.log('Login called with new token and user data:', { newToken, userData });
