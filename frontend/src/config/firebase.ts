@@ -41,11 +41,12 @@ export const requestForToken = async () => {
             const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
             console.log('[Firebase] Using VAPID Key:', vapidKey ? 'Found' : 'Missing');
 
-            // Explicitly register service worker
             if ('serviceWorker' in navigator) {
                 console.log('[Firebase] Registering service worker manually...');
                 try {
-                    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                    const existing = await navigator.serviceWorker.getRegistration('/');
+                    const registration = existing || await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                    await navigator.serviceWorker.ready;
                     console.log('[Firebase] Service Worker registered scope:', registration.scope);
 
                     const token = await getToken(messaging, {
