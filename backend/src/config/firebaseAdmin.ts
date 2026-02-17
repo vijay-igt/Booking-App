@@ -5,13 +5,29 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+const serviceAccountBase64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
 
-if (!serviceAccountPath) {
-    console.warn('[FirebaseAdmin] FIREBASE_SERVICE_ACCOUNT_PATH not found in .env. Push notifications will be disabled.');
+const loadServiceAccount = () => {
+    if (serviceAccountJson) {
+        return JSON.parse(serviceAccountJson);
+    }
+    if (serviceAccountBase64) {
+        const decoded = Buffer.from(serviceAccountBase64, 'base64').toString('utf8');
+        return JSON.parse(decoded);
+    }
+    if (serviceAccountPath) {
+        return require(path.resolve(process.cwd(), serviceAccountPath));
+    }
+    return null;
+};
+
+const serviceAccount = loadServiceAccount();
+
+if (!serviceAccount) {
+    console.warn('[FirebaseAdmin] Firebase service account not configured. Push notifications will be disabled.');
 } else {
     try {
-        const serviceAccount = require(path.resolve(process.cwd(), serviceAccountPath));
-
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
         });

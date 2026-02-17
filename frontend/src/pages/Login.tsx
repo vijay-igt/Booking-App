@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/useAuth';
-import api from '../api';
+import api, { getBackendBaseUrl } from '../api';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
@@ -10,6 +10,7 @@ const Login: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const backendUrl = getBackendBaseUrl();
     const [isLoading, setIsLoading] = useState(false);
     const auth = useAuth();
     const navigate = useNavigate();
@@ -134,7 +135,7 @@ const Login: React.FC = () => {
                         </div>
 
                         <a
-                            href={`${import.meta.env.VITE_BACKEND_URL}/auth/google`}
+                            href={`${backendUrl}/auth/google`}
                             className="w-full h-14 rounded-2xl bg-neutral-800 text-white font-bold flex items-center justify-center gap-2 hover:bg-neutral-700 transition-colors"
                         >
                             <img src="https://www.svgrepo.com/show/355037/google.svg" alt="Google" className="w-6 h-6" />

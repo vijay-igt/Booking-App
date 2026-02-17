@@ -1,4 +1,4 @@
-import api from '../api';
+import api, { getBackendBaseUrl } from '../api';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
@@ -11,6 +11,7 @@ const Register: React.FC = () => {
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const backendUrl = getBackendBaseUrl();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -186,7 +187,7 @@ const Register: React.FC = () => {
                                 </div>
 
                                 <a
-                                    href={`${import.meta.env.VITE_BACKEND_URL}/auth/google`}
+                                    href={`${backendUrl}/auth/google`}
                                     className="w-full h-14 rounded-2xl bg-neutral-800 text-white font-bold flex items-center justify-center gap-2 hover:bg-neutral-700 transition-colors"
                                 >
                                     <img src="https://www.svgrepo.com/show/355037/google.svg" alt="Google" className="w-6 h-6" />
