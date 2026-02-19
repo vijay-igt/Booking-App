@@ -4,8 +4,8 @@ import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
-router.post('/', createBooking);
-router.get('/user/:userId', getUserBookings);
+router.post('/', authenticateToken, createBooking);
+router.get('/user/:userId', authenticateToken, getUserBookings);
 router.put('/:id/cancel', authenticateToken, cancelUserBooking);
 
 export default router;

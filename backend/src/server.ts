@@ -17,6 +17,7 @@ import notificationRoutes from './routes/notificationRoutes';
 import walletRoutes from './routes/walletRoutes';
 import lockRoutes from './routes/lockRoutes';
 import userRoutes from './routes/userRoutes';
+import pricingRoutes from './routes/pricingRoutes';
 import path from 'path';
 
 import jwt from 'jsonwebtoken';
@@ -85,6 +86,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api', lockRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/pricing', pricingRoutes);
 
 // Google OAuth routes
 app.get('/auth/google',

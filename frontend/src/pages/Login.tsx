@@ -5,6 +5,8 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 import { AxiosError } from 'axios';
+import { TextField } from '../components/ui/TextField';
+import { Button } from '../components/ui/Button';
 
 const Login: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -40,7 +42,7 @@ const Login: React.FC = () => {
     return (
         <div className="min-h-screen bg-neutral-950 text-white flex flex-col">
             {/* Background decoration */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl"></div>
+            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl"></div>
 
             <div className="flex-1 flex items-center justify-center px-5 py-12 relative z-10">
                 <motion.div
@@ -54,7 +56,7 @@ const Login: React.FC = () => {
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
                             transition={{ delay: 0.2, type: 'spring' }}
-                            className="w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20"
+                            className="w-16 h-16 rounded-2xl bg-amber-500 flex items-center justify-center mx-auto mb-6"
                         >
                             <span className="text-2xl font-black text-white">C</span>
                         </motion.div>
@@ -77,48 +79,46 @@ const Login: React.FC = () => {
                         )}
                     </AnimatePresence>
 
-                    {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-neutral-400 mb-2">Email</label>
-                            <div className="relative">
-                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
-                                <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="you@example.com"
-                                    className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
-                                    required
-                                />
-                            </div>
-                        </div>
+                        <TextField
+                            label="Email"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@example.com"
+                            autoComplete="email"
+                            required
+                            icon={<Mail className="w-5 h-5" />}
+                        />
 
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <label className="block text-sm font-medium text-neutral-400">Password</label>
-                                <Link to="/forgot-password" title="Forgot Password?" className="text-sm text-emerald-400 font-medium">
+                        <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                                <span className="block text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+                                    Password
+                                </span>
+                                <Link
+                                    to="/forgot-password"
+                                    title="Forgot Password?"
+                                    className="text-xs font-semibold text-amber-400 hover:text-amber-300"
+                                >
                                     Forgot?
                                 </Link>
                             </div>
-                            <div className="relative">
-                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
-                                <input
-                                    type="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="Enter your password"
-                                    className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
-                                    required
-                                />
-                            </div>
+                            <TextField
+                                label=""
+                                aria-label="Password"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Enter your password"
+                                autoComplete="current-password"
+                                required
+                                icon={<Lock className="w-5 h-5" />}
+                                className="mt-0"
+                            />
                         </div>
 
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
-                        >
+                        <Button type="submit" disabled={isLoading} fullWidth size="lg" className="mt-4">
                             {isLoading ? (
                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
@@ -127,7 +127,7 @@ const Login: React.FC = () => {
                                     <ArrowRight className="w-5 h-5" />
                                 </>
                             )}
-                        </button>
+                        </Button>
 
                         <div className="relative flex items-center justify-center my-6">
                             <span className="absolute bg-neutral-950 px-3 text-sm text-neutral-500">Or continue with</span>
@@ -146,7 +146,7 @@ const Login: React.FC = () => {
                     {/* Footer */}
                     <p className="text-center text-sm text-neutral-500 mt-8">
                         Don't have an account?{' '}
-                        <Link to="/register" className="text-emerald-400 font-semibold">
+                        <Link to="/register" className="text-amber-400 font-semibold">
                             Sign up
                         </Link>
                     </p>

@@ -50,6 +50,13 @@ export class User extends Model {
     })
     declare walletBalance: number;
 
+    @Default('NONE')
+    @Column({
+        type: DataType.ENUM('NONE', 'SILVER', 'GOLD', 'PLATINUM'),
+        allowNull: false
+    })
+    declare membershipTier: 'NONE' | 'SILVER' | 'GOLD' | 'PLATINUM';
+
     @Default(10.00)
     @Column({
         type: DataType.DECIMAL(5, 2),

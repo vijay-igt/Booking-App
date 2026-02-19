@@ -32,8 +32,8 @@ const ForgotPassword: React.FC = () => {
     return (
         <div className="min-h-screen bg-neutral-950 text-white flex flex-col relative overflow-hidden">
             {/* Background decoration */}
-            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
-            <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[120px] -ml-64 -mb-64"></div>
+            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+            <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-[120px] -ml-64 -mb-64"></div>
 
             <div className="flex-1 flex items-center justify-center px-5 py-12 relative z-10">
                 <motion.div
@@ -54,7 +54,7 @@ const ForgotPassword: React.FC = () => {
                             transition={{ delay: 0.2, type: 'spring' }}
                             className="w-16 h-16 rounded-3xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mx-auto mb-6"
                         >
-                            <Mail className="w-8 h-8 text-emerald-500" />
+                            <Mail className="w-8 h-8 text-amber-500" />
                         </motion.div>
                         <h1 className="text-3xl font-bold mb-3">Forgot Password?</h1>
                         <p className="text-neutral-500">
@@ -89,7 +89,7 @@ const ForgotPassword: React.FC = () => {
                                             value={email}
                                             onChange={(e) => setEmail(e.target.value)}
                                             placeholder="you@example.com"
-                                            className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                            className="w-full h-14 pl-12 pr-4 rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-colors"
                                             required
                                         />
                                     </div>
@@ -98,7 +98,7 @@ const ForgotPassword: React.FC = () => {
                                 <button
                                     type="submit"
                                     disabled={isLoading}
-                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-4 shadow-lg shadow-emerald-500/20"
+                                    className="w-full h-14 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-4"
                                 >
                                     {isLoading ? (
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -115,18 +115,18 @@ const ForgotPassword: React.FC = () => {
                                 key="success"
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
-                                className="text-center p-8 rounded-3xl bg-emerald-500/5 border border-emerald-500/10"
+                                className="text-center p-8 rounded-2xl bg-amber-500/5 border border-amber-500/10"
                             >
-                                <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6">
-                                    <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                                <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-6">
+                                    <CheckCircle2 className="w-10 h-10 text-amber-500" />
                                 </div>
                                 <h2 className="text-xl font-bold mb-2">Check your inbox</h2>
                                 <p className="text-neutral-500 mb-8">
-                                    We've sent a password reset link to <span className="text-emerald-400 font-medium">{email}</span>. Click the link to reset your password.
+                                    We've sent a password reset link to <span className="text-amber-400 font-medium">{email}</span>. Click the link to reset your password.
                                 </p>
                                 <button
                                     onClick={() => setIsSubmitted(false)}
-                                    className="text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+                                    className="text-sm font-semibold text-amber-400 hover:text-amber-300 transition-colors"
                                 >
                                     Didn't receive the email? Try again
                                 </button>

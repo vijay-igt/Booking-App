@@ -10,65 +10,172 @@ import { User } from '../models/User';
 import { Movie } from '../models/Movie';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
+import { PricingRule } from '../models/PricingRule';
+import { Coupon } from '../models/Coupon';
+import { CouponUsage } from '../models/CouponUsage';
 import { sequelize } from '../config/database';
 import { getProducer } from '../config/kafkaClient';
 import { LockService } from '../services/lockService';
+import { calculateSeatPrice, validateCoupon, PricingContext } from '../services/pricingEngine';
 import { isAxiosError } from 'axios';
+
+// ─── Pricing engine helper (used for server-side price validation) ─────────────
+async function computeExpectedTotal(
+    showtimeId: number,
+    seatIds: number[],
+    userId: number,
+    couponCode?: string,
+    paymentMethod?: string,
+): Promise<number> {
+    const showtime = await Showtime.findByPk(showtimeId, {
+        include: [{ model: Movie }] as any,
+    });
+    if (!showtime) return 0;
+
+    const seats = await Seat.findAll({ where: { id: seatIds, screenId: showtime.screenId } });
+    if (seats.length !== seatIds.length) return 0;
+    const bookedCount = await Ticket.count({
+        include: [{ model: Booking, where: { showtimeId, status: 'confirmed' }, required: true }] as any,
+    });
+    const totalSeats = await Seat.count({ where: { screenId: showtime.screenId } });
+    const occupancyPercent = totalSeats > 0 ? (bookedCount / totalSeats) * 100 : 0;
+
+    const rules = await PricingRule.findAll({
+        where: { isActive: true },
+        order: [['priority', 'ASC'], ['id', 'ASC']],
+    });
+
+    const user = await User.findByPk(userId, { attributes: ['membershipTier'] });
+    const membershipTier = user?.membershipTier ?? 'NONE';
+    const tierPrices = showtime.tierPrices || {};
+
+    let total = 0;
+    for (const seat of seats) {
+        const basePrice = Number(tierPrices[seat.type] ?? seat.price);
+        const ctx: PricingContext = {
+            showtimeDate: new Date(showtime.startTime),
+            moviePopularityScore: (showtime as any).movie?.popularityScore ?? 50,
+            seatCategory: seat.type,
+            occupancyPercent,
+            occupancyThreshold: showtime.occupancyThreshold ?? 70,
+            basePrice,
+            membershipTier,
+            paymentMethod,
+        };
+        const breakdown = calculateSeatPrice(ctx, rules);
+        total += breakdown.finalPrice;
+    }
+
+    // Apply coupon if provided
+    if (couponCode) {
+        const coupon = await Coupon.findOne({ where: { code: couponCode.toUpperCase() } });
+        if (coupon) {
+            const userUsageCount = await CouponUsage.count({
+                where: { couponId: coupon.id, userId },
+            });
+            const result = validateCoupon({
+                coupon,
+                totalBeforeCoupon: total,
+                userId,
+                userUsageCount,
+                movieId: showtime.movieId,
+                showtimeId: showtime.id,
+                showtimeDate: new Date(showtime.startTime),
+                seatCategories: seats.map(s => s.type),
+                paymentMethod,
+            });
+            if (result.valid) {
+                total = Math.max(1, total - result.discountAmount);
+            }
+        }
+    }
+
+    return Math.round(total * 100) / 100;
+}
 
 export const createBooking = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { userId, showtimeId, seatIds, totalAmount, paymentMethod } = req.body;
+        const { userId: bodyUserId, showtimeId, seatIds, totalAmount, paymentMethod, couponCode } = req.body;
+        const authUserId = req.user?.id;
 
-        if (!userId || !showtimeId || !seatIds || !totalAmount) {
+        if (!authUserId) {
+            res.status(401).json({ message: 'Access denied. No token provided.' });
+            return;
+        }
+        if (bodyUserId && Number(bodyUserId) !== authUserId) {
+            res.status(403).json({ message: 'You are not authorized to book for this user.' });
+            return;
+        }
+        if (!showtimeId || !seatIds || !totalAmount) {
             res.status(400).json({ message: 'Missing required fields' });
             return;
         }
+        const userId = authUserId;
 
-        // Validate Seat Locks
         const hasLock = await LockService.validateLock(showtimeId, seatIds, userId);
         if (!hasLock) {
             res.status(409).json({ message: 'Session expired or seats are no longer reserved.' });
             return;
         }
 
+        // ── Server-side price validation ──────────────────────────────────────
+        const expectedTotal = await computeExpectedTotal(showtimeId, seatIds, userId, couponCode, paymentMethod);
+        if (expectedTotal <= 0) {
+            res.status(400).json({ message: 'Unable to calculate price. Please refresh and try again.' });
+            return;
+        }
+        if (Math.abs(expectedTotal - Number(totalAmount)) > 1) {
+            res.status(400).json({
+                message: 'Price mismatch. Please refresh and try again.',
+                expected: expectedTotal,
+            });
+            return;
+        }
+        const serverTotalAmount = expectedTotal;
+
         const trackingId = `BOOK-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
         // Wallet Balance Check (Synchronous pre-check)
         if (paymentMethod === 'WALLET') {
             const user = await User.findByPk(userId);
-            if (!user || Number(user.walletBalance) < Number(totalAmount)) {
+            if (!user || Number(user.walletBalance) < Number(serverTotalAmount)) {
                 res.status(400).json({ message: 'Insufficient wallet balance' });
                 return;
             }
         }
 
-        // Produce seat reservation event
         const producer = await getProducer();
         if (producer) {
-            await producer.send({
-                topic: 'seat-reservations',
-                messages: [{
-                    value: JSON.stringify({
-                        userId,
-                        showtimeId,
-                        seatIds,
-                        totalAmount,
-                        paymentMethod,
-                        trackingId
-                    })
-                }]
-            });
-
-            console.log(`[BookingController] Dispatched reservation request: ${trackingId}`);
-
-            res.status(202).json({
-                message: 'Your booking is being processed. You will be notified shortly.',
-                trackingId
-            });
-        } else {
-            // Fallback (Direct DB insert if Kafka is down)
-            const transaction = await sequelize.transaction();
             try {
+                await producer.send({
+                    topic: 'seat-reservations',
+                    messages: [{
+                        value: JSON.stringify({
+                            userId,
+                            showtimeId,
+                            seatIds,
+                            totalAmount: serverTotalAmount,
+                            paymentMethod,
+                            trackingId,
+                            couponCode: couponCode ? String(couponCode).toUpperCase() : null
+                        })
+                    }]
+                });
+
+                console.log(`[BookingController] Dispatched reservation request: ${trackingId}`);
+
+                res.status(202).json({
+                    message: 'Your booking is being processed. You will be notified shortly.',
+                    trackingId
+                });
+                return;
+            } catch (kafkaError) {
+                console.error('[BookingController] Kafka send failed, falling back to direct booking:', kafkaError);
+            }
+        }
+
+        const transaction = await sequelize.transaction();
+        try {
                 // Fetch Showtime & Related Info first
                 const showtime = await Showtime.findByPk(showtimeId, {
                     include: [{
@@ -100,6 +207,30 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                     return;
                 }
 
+                let couponForUsage: Coupon | null = null;
+                if (couponCode) {
+                    couponForUsage = await Coupon.findOne({
+                        where: { code: String(couponCode).toUpperCase() },
+                        transaction,
+                    });
+                    if (couponForUsage) {
+                        const userUsageCount = await CouponUsage.count({
+                            where: { couponId: couponForUsage.id, userId },
+                            transaction,
+                        });
+                        if (couponForUsage.perUserLimit !== null && userUsageCount >= couponForUsage.perUserLimit) {
+                            await transaction.rollback();
+                            res.status(400).json({ message: 'You have already used this coupon the maximum number of times.' });
+                            return;
+                        }
+                        if (couponForUsage.maxUses !== null && couponForUsage.usedCount >= couponForUsage.maxUses) {
+                            await transaction.rollback();
+                            res.status(400).json({ message: 'Coupon has been fully redeemed.' });
+                            return;
+                        }
+                    }
+                }
+
                 // 2. PAYMENT PROCESSING (User Side)
                 if (paymentMethod === 'WALLET') {
                     // Get User Wallet
@@ -117,14 +248,14 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                         }
                     }
 
-                    if (!userWallet || Number(userWallet.balance) < Number(totalAmount)) {
+                    if (!userWallet || Number(userWallet.balance) < Number(serverTotalAmount)) {
                         await transaction.rollback();
                         res.status(400).json({ message: 'Insufficient wallet balance' });
                         return;
                     }
 
                     // Deduct from User
-                    userWallet.balance = Number(userWallet.balance) - Number(totalAmount);
+                    userWallet.balance = Number(userWallet.balance) - Number(serverTotalAmount);
                     await userWallet.save({ transaction });
 
                     // Sync legacy User.walletBalance
@@ -137,7 +268,7 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                     // Record Debit Transaction
                     await Transaction.create({
                         userId,
-                        amount: -Number(totalAmount),
+                        amount: -Number(serverTotalAmount),
                         type: 'DEBIT',
                         description: `Booking #${trackingId}`
                     }, { transaction });
@@ -146,8 +277,8 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                 // 3. DISTRIBUTE EARNINGS (Owner & Platform)
                 const owner = showtime.screen.theater.owner;
                 const commissionRate = Number(owner.commissionRate) || 10;
-                const commissionAmount = (Number(totalAmount) * commissionRate) / 100;
-                const ownerAmount = Number(totalAmount) - commissionAmount;
+                const commissionAmount = (Number(serverTotalAmount) * commissionRate) / 100;
+                const ownerAmount = Number(serverTotalAmount) - commissionAmount;
 
                 // Update Owner Wallet
                 let ownerWallet = await Wallet.findOne({ where: { userId: owner.id, type: 'owner' }, transaction });
@@ -186,17 +317,27 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                 }, { transaction });
 
                 // 4. Create Booking & Tickets
-                const booking = await Booking.create({ userId, showtimeId, totalAmount, status: 'confirmed' }, { transaction });
+                const booking = await Booking.create({ userId, showtimeId, totalAmount: serverTotalAmount, status: 'confirmed' }, { transaction });
                 const tickets = seatIds.map((seatId: number) => ({ bookingId: booking.id, showtimeId, seatId }));
                 await Ticket.bulkCreate(tickets, { transaction });
+                if (couponForUsage) {
+                    await CouponUsage.create({
+                        couponId: couponForUsage.id,
+                        userId,
+                        bookingId: booking.id,
+                    }, { transaction });
+                    couponForUsage.usedCount = Number(couponForUsage.usedCount) + 1;
+                    await couponForUsage.save({ transaction });
+                }
                 await transaction.commit();
 
 
                 res.status(201).json({ message: 'Booking successful (fallback)', booking });
-            } catch (err) {
-                if (transaction) await transaction.rollback();
-                throw err;
-            }
+        } catch (err) {
+            if (transaction) await transaction.rollback();
+            throw err;
+        } finally {
+            await LockService.releaseLock(showtimeId, seatIds, userId);
         }
     } catch (error) {
         console.error('Error creating booking:', error);
@@ -209,9 +350,23 @@ export const getUserBookings = async (req: Request, res: Response): Promise<void
     console.log('[getUserBookings] Authorization Header:', req.headers.authorization);
     try {
         const { userId } = req.params;
-        console.log(`[getUserBookings] Received request for userId: ${userId}`);
+        const authUserId = req.user?.id;
+        if (!authUserId) {
+            res.status(401).json({ message: 'Access denied. No token provided.' });
+            return;
+        }
+        const requestedUserId = Number(userId);
+        if (!Number.isFinite(requestedUserId)) {
+            res.status(400).json({ message: 'Invalid userId' });
+            return;
+        }
+        if (requestedUserId !== authUserId && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+            res.status(403).json({ message: 'Access denied.' });
+            return;
+        }
+        console.log(`[getUserBookings] Received request for userId: ${requestedUserId}`);
         const bookings = await Booking.findAll({
-            where: { userId },
+            where: { userId: requestedUserId },
             include: [{
                 model: Ticket,
                 include: [Seat]

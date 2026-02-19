@@ -12,6 +12,7 @@ export interface Movie {
     audio?: string;
     format?: string;
     ownerId?: number;
+    popularityScore?: number;
 }
 
 export interface Theater {
@@ -68,6 +69,7 @@ export interface User {
     walletBalance?: number;
     commissionRate?: number;
     adminRequestStatus?: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+    membershipTier?: 'NONE' | 'SILVER' | 'GOLD' | 'PLATINUM';
 }
 
 export interface WalletRequest {
@@ -131,3 +133,77 @@ export interface AdminDashboardStats {
 }
 
 export type DashboardStats = SuperAdminDashboardStats | AdminDashboardStats;
+
+// ─── Pricing Engine Types ──────────────────────────────────────────────────────
+
+export interface AppliedRuleInfo {
+    name: string;
+    ruleType: string;
+    effect: string; // e.g. '×1.20' or '−₹50'
+}
+
+export interface SeatPriceBreakdown {
+    seatId: number;
+    seatType: string;
+    basePrice: number;
+    afterRules: number;
+    appliedRules: AppliedRuleInfo[];
+    membershipDiscountPercent: number;
+    membershipDiscountAmount: number;
+    afterMembership: number;
+    couponDiscountAmount: number;
+    afterCoupon: number;
+    finalPrice: number;
+}
+
+export interface PricingQuoteResponse {
+    showtimeId: number;
+    movie: string;
+    seats: SeatPriceBreakdown[];
+    subtotal: number;
+    coupon: {
+        code: string;
+        discountType: 'PERCENT' | 'FLAT';
+        discountValue: number;
+        discountAmount: number;
+    } | null;
+    couponError?: string;
+    couponDiscount: number;
+    total: number;
+    membershipTier: 'NONE' | 'SILVER' | 'GOLD' | 'PLATINUM';
+    calculationMs: number;
+}
+
+export interface PricingRule {
+    id: number;
+    name: string;
+    ruleType: 'DAY_TYPE' | 'POPULARITY' | 'SEAT_CATEGORY' | 'DEMAND_SURGE' | 'FLAT_DISCOUNT';
+    condition: Record<string, unknown>;
+    multiplier: number | null;
+    flatDiscount: number | null;
+    priority: number;
+    isActive: boolean;
+    validFrom: string | null;
+    validUntil: string | null;
+    createdAt: string;
+}
+
+export interface Coupon {
+    id: number;
+    code: string;
+    createdBy: number;
+    discountType: 'PERCENT' | 'FLAT';
+    discountValue: number;
+    maxUses: number | null;
+    usedCount: number;
+    perUserLimit: number | null;
+    minOrderValue: number;
+    validFrom: string | null;
+    expiresAt: string | null;
+    movieId: number | null;
+    showtimeId: number | null;
+    seatCategory: string | null;
+    paymentMethod: string | null;
+    isActive: boolean;
+    createdAt: string;
+}

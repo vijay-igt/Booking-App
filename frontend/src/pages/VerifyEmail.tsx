@@ -43,8 +43,8 @@ const VerifyEmail: React.FC = () => {
     return (
         <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-5 relative overflow-hidden">
             {/* Background decoration */}
-            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px] -mr-64 -mt-64"></div>
-            <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[120px] -ml-64 -mb-64"></div>
+            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px] -mr-64 -mt-64"></div>
+            <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-[120px] -ml-64 -mb-64"></div>
 
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -60,7 +60,7 @@ const VerifyEmail: React.FC = () => {
                             exit={{ opacity: 0 }}
                             className="flex flex-col items-center"
                         >
-                            <Loader2 className="w-16 h-16 text-emerald-500 animate-spin mb-6" />
+                            <Loader2 className="w-16 h-16 text-amber-500 animate-spin mb-6" />
                             <h1 className="text-2xl font-bold mb-2">Verifying Email...</h1>
                             <p className="text-neutral-500">Please wait while we confirm your account.</p>
                         </motion.div>
@@ -73,14 +73,14 @@ const VerifyEmail: React.FC = () => {
                             animate={{ opacity: 1, y: 0 }}
                             className="flex flex-col items-center"
                         >
-                            <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-6">
-                                <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+                            <div className="w-20 h-20 rounded-full bg-amber-500/20 flex items-center justify-center mb-6">
+                                <CheckCircle2 className="w-12 h-12 text-amber-500" />
                             </div>
-                            <h1 className="text-3xl font-bold mb-3 text-emerald-400">Verified!</h1>
+                            <h1 className="text-3xl font-bold mb-3 text-amber-400">Verified!</h1>
                             <p className="text-neutral-400 mb-8 leading-relaxed">
                                 {message}
                             </p>
-                            <Link to="/login" className="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20">
+                            <Link to="/login" className="w-full h-14 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold flex items-center justify-center gap-2 transition-all">
                                 Go to Login
                                 <ArrowRight className="w-5 h-5" />
                             </Link>

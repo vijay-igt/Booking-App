@@ -12,6 +12,9 @@ import { LockService } from '../services/lockService';
 import { Wallet } from '../models/Wallet';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
+import { Coupon } from '../models/Coupon';
+import { CouponUsage } from '../models/CouponUsage';
+import { sendNotificationToUser } from '../services/websocketService';
 
 export const startSeatReservationConsumer = async () => {
     try {
@@ -26,7 +29,7 @@ export const startSeatReservationConsumer = async () => {
         await consumer.run({
             eachMessage: async ({ topic, partition, message }) => {
                 if (!message.value) return;
-                const { userId, showtimeId, seatIds, totalAmount, trackingId, paymentMethod } = JSON.parse(message.value.toString());
+                const { userId, showtimeId, seatIds, totalAmount, trackingId, paymentMethod, couponCode } = JSON.parse(message.value.toString());
 
                 // Validate Seat Locks
                 const hasLock = await LockService.validateLock(showtimeId, seatIds, userId);
@@ -68,6 +71,26 @@ export const startSeatReservationConsumer = async () => {
                         console.error(`[ReservationConsumer] Failed - seats are already taken for booking ${trackingId}`);
                         await transaction.rollback();
                         return;
+                    }
+
+                    let couponForUsage: Coupon | null = null;
+                    if (couponCode) {
+                        couponForUsage = await Coupon.findOne({
+                            where: { code: String(couponCode).toUpperCase() },
+                            transaction,
+                        });
+                        if (couponForUsage) {
+                            const userUsageCount = await CouponUsage.count({
+                                where: { couponId: couponForUsage.id, userId },
+                                transaction,
+                            });
+                            if (couponForUsage.perUserLimit !== null && userUsageCount >= couponForUsage.perUserLimit) {
+                                throw new Error('Coupon per-user limit exceeded');
+                            }
+                            if (couponForUsage.maxUses !== null && couponForUsage.usedCount >= couponForUsage.maxUses) {
+                                throw new Error('Coupon max uses exceeded');
+                            }
+                        }
                     }
 
                     // 2. PAYMENT PROCESSING (User Side)
@@ -165,6 +188,15 @@ export const startSeatReservationConsumer = async () => {
                         seatId,
                     }));
                     await Ticket.bulkCreate(tickets, { transaction });
+                    if (couponForUsage) {
+                        await CouponUsage.create({
+                            couponId: couponForUsage.id,
+                            userId,
+                            bookingId: booking.id,
+                        }, { transaction });
+                        couponForUsage.usedCount = Number(couponForUsage.usedCount) + 1;
+                        await couponForUsage.save({ transaction });
+                    }
 
                     await transaction.commit();
 

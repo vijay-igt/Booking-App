@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { ChevronLeft, User, Mail, Shield, LogOut, Ticket, ChevronRight, Edit2, Check, X, Briefcase } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import BottomNav from '../components/BottomNav';
+import SiteFooter from '../components/SiteFooter';
 import api from '../api';
 import { AxiosError } from 'axios';
 
@@ -100,13 +101,13 @@ const Profile: React.FC = () => {
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="relative rounded-3xl bg-gradient-to-br from-emerald-500/10 to-neutral-900 border border-emerald-500/20 p-6 overflow-hidden"
+                    className="relative rounded-2xl bg-neutral-900 border border-neutral-800 p-6 overflow-hidden"
                 >
                     {/* Background decoration */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl"></div>
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl"></div>
 
                     <div className="relative flex items-center gap-4">
-                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
+                        <div className="w-20 h-20 rounded-2xl bg-amber-500 flex items-center justify-center shrink-0">
                             <User className="w-10 h-10 text-white" />
                         </div>
                         <div className="flex-1 min-w-0">
@@ -116,13 +117,13 @@ const Profile: React.FC = () => {
                                         type="text"
                                         value={newName}
                                         onChange={(e) => setNewName(e.target.value)}
-                                        className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-emerald-500 w-full"
+                                        className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-amber-500 w-full"
                                         autoFocus
                                     />
                                     <button
                                         onClick={handleUpdateProfile}
                                         disabled={isSaving}
-                                        className="p-1.5 bg-emerald-500 rounded-lg text-white"
+                                        className="p-1.5 bg-amber-500 rounded-lg text-black"
                                     >
                                         <Check className="w-4 h-4" />
                                     </button>
@@ -189,7 +190,7 @@ const Profile: React.FC = () => {
                                         className={`px-4 py-2 rounded-xl text-sm font-medium ${
                                             auth.user?.adminRequestStatus === 'REJECTED'
                                                 ? 'bg-red-500/10 text-red-500 cursor-not-allowed'
-                                                : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform'
+                                                : 'bg-amber-500 hover:bg-amber-400 text-black active:scale-95 transition-transform'
                                         }`}
                                     >
                                         {requestLoading ? '...' : auth.user?.adminRequestStatus === 'REJECTED' ? 'Rejected' : 'Apply Now'}
@@ -218,7 +219,7 @@ const Profile: React.FC = () => {
                                 <div className="font-medium text-white flex items-center gap-2">
                                     {item.label}
                                     {item.badge && (
-                                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 text-[10px] font-bold uppercase tracking-wider">
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
                                             {item.badge}
                                         </span>
                                     )}
@@ -247,7 +248,8 @@ const Profile: React.FC = () => {
                 </div>
             </div>
 
-            <BottomNav />
+      <SiteFooter />
+      <BottomNav />
         </div>
     );
 };

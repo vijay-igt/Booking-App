@@ -57,7 +57,7 @@ const Register: React.FC = () => {
     return (
         <div className="min-h-screen bg-neutral-950 text-white flex flex-col">
             {/* Background decoration */}
-            <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl"></div>
+            <div className="absolute top-0 left-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl"></div>
 
             <div className="flex-1 flex items-center justify-center px-5 py-12 relative z-10">
                 <motion.div
@@ -71,7 +71,7 @@ const Register: React.FC = () => {
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
                             transition={{ delay: 0.2, type: 'spring' }}
-                            className="w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20"
+                            className="w-16 h-16 rounded-2xl bg-amber-500 flex items-center justify-center mx-auto mb-6"
                         >
                             <span className="text-2xl font-black text-white">C</span>
                         </motion.div>
@@ -119,7 +119,7 @@ const Register: React.FC = () => {
                                                 value={name}
                                                 onChange={(e) => setName(e.target.value)}
                                                 placeholder="John Doe"
-                                                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-colors"
                                                 required
                                             />
                                         </div>
@@ -134,7 +134,7 @@ const Register: React.FC = () => {
                                                 value={email}
                                                 onChange={(e) => setEmail(e.target.value)}
                                                 placeholder="you@example.com"
-                                                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-colors"
                                                 required
                                             />
                                         </div>
@@ -149,7 +149,7 @@ const Register: React.FC = () => {
                                                 value={password}
                                                 onChange={(e) => setPassword(e.target.value)}
                                                 placeholder="Create a strong password"
-                                                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-colors"
                                                 required
                                             />
                                         </div>
@@ -157,9 +157,9 @@ const Register: React.FC = () => {
                                         {password.length > 0 && (
                                             <div className="mt-2 space-y-2">
                                                 <div className="flex gap-1">
-                                                    <div className={`h-1 flex-1 rounded-full ${password.length >= 6 ? 'bg-emerald-500' : 'bg-neutral-800'}`}></div>
-                                                    <div className={`h-1 flex-1 rounded-full ${password.length >= 8 ? 'bg-emerald-500' : 'bg-neutral-800'}`}></div>
-                                                    <div className={`h-1 flex-1 rounded-full ${password.length >= 10 ? 'bg-emerald-500' : 'bg-neutral-800'}`}></div>
+                                                    <div className={`h-1 flex-1 rounded-full ${password.length >= 6 ? 'bg-amber-500' : 'bg-neutral-800'}`}></div>
+                                                    <div className={`h-1 flex-1 rounded-full ${password.length >= 8 ? 'bg-amber-500' : 'bg-neutral-800'}`}></div>
+                                                    <div className={`h-1 flex-1 rounded-full ${password.length >= 10 ? 'bg-amber-500' : 'bg-neutral-800'}`}></div>
                                                 </div>
                                             </div>
                                         )}
@@ -168,7 +168,7 @@ const Register: React.FC = () => {
                                     <button
                                         type="submit"
                                         disabled={isLoading}
-                                        className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+                                        className="w-full h-14 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
                                     >
                                         {isLoading ? (
                                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -196,7 +196,7 @@ const Register: React.FC = () => {
 
                                 <p className="text-center text-sm text-neutral-500 mt-8">
                                     Already have an account?{' '}
-                                    <Link to="/login" className="text-emerald-400 font-semibold">
+                                    <Link to="/login" className="text-amber-400 font-semibold">
                                         Sign in
                                     </Link>
                                 </p>
@@ -208,18 +208,18 @@ const Register: React.FC = () => {
                                 animate={{ opacity: 1, scale: 1 }}
                                 className="text-center p-8 rounded-3xl bg-neutral-900 border border-neutral-800"
                             >
-                                <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6">
-                                    <Mail className="w-10 h-10 text-emerald-500" />
+                                <div className="w-20 h-20 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-6">
+                                    <Mail className="w-10 h-10 text-amber-500" />
                                 </div>
                                 <h2 className="text-2xl font-bold mb-4 text-white">Verify your email</h2>
                                 <p className="text-neutral-400 mb-8 leading-relaxed">
-                                    We've sent a verification link to <span className="text-emerald-400 font-medium">{email}</span>.
+                                    We've sent a verification link to <span className="text-amber-400 font-medium">{email}</span>.
                                     Please click the link in the email to activate your account.
                                 </p>
                                 <div className="space-y-4">
                                     <Link
                                         to="/login"
-                                        className="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-colors"
+                                        className="w-full h-14 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
                                     >
                                         Go to Login
                                         <ArrowRight className="w-5 h-5" />

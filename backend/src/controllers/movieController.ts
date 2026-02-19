@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
+import { sequelize } from '../config/database';
 import { Movie } from '../models/Movie';
 import { Showtime } from '../models/Showtime';
 import { Screen } from '../models/Screen';
@@ -189,5 +190,70 @@ export const deleteMovie = async (req: Request, res: Response): Promise<void> =>
     } catch (error) {
         console.error('Delete Movie Error:', error);
         res.status(500).json({ message: 'Error deleting movie', error });
+    }
+};
+
+// ─── Popularity Calculation ────────────────────────────────────────────────────
+
+export const recalculatePopularity = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        // 1. Get booking counts per movie for the last 7 days
+        // We need to join Booking -> Showtime -> Movie
+        // Note: We use a raw query-like structure with Sequelize for aggregation
+        const bookings = await Booking.findAll({
+            where: {
+                createdAt: { [Op.gte]: sevenDaysAgo },
+                status: 'confirmed'
+            },
+            include: [{
+                model: Showtime,
+                attributes: ['movieId'],
+                required: true
+            }],
+            attributes: [
+                [sequelize.col('showtime.movieId'), 'movieId'],
+                [sequelize.fn('COUNT', sequelize.col('Booking.id')), 'count']
+            ],
+            group: ['showtime.movieId'],
+            raw: true
+        }) as unknown as { movieId: number; count: number }[];
+
+        if (bookings.length === 0) {
+            // Reset all to default 50 if no bookings? Or leave as is?
+            // Let's leave as is to avoid wiping manual overrides, or maybe decay them?
+            // For now, just return.
+            res.json({ message: 'No recent bookings to calculate popularity from.' });
+            return;
+        }
+
+        // 2. Find max bookings to normalize scores
+        const maxBookings = Math.max(...bookings.map(b => Number(b.count)));
+
+        // 3. Update each movie
+        const updates = bookings.map(async (b) => {
+            const movieId = b.movieId;
+            const count = Number(b.count);
+            // Linear scale: (count / max) * 100
+            // We ensure at least 10 score if they have bookings, to distinguish from 0
+            const score = Math.max(10, Math.round((count / maxBookings) * 100));
+
+            await Movie.update({ popularityScore: score }, { where: { id: movieId } });
+        });
+
+        await Promise.all(updates);
+
+        res.json({
+            message: 'Popularity scores updated successfully.',
+            stats: {
+                moviesUpdated: bookings.length,
+                maxBookingsInPeriod: maxBookings
+            }
+        });
+    } catch (error) {
+        console.error('Popularity Calc Error:', error);
+        res.status(500).json({ message: 'Error calculating popularity', error });
     }
 };

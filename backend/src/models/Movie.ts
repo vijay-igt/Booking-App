@@ -1,4 +1,4 @@
-import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, HasMany, ForeignKey, BelongsTo } from 'sequelize-typescript';
+import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, HasMany, ForeignKey, BelongsTo, Default } from 'sequelize-typescript';
 import { Showtime } from './Showtime';
 import { User } from './User';
 
@@ -66,6 +66,14 @@ export class Movie extends Model {
         defaultValue: 'IMAX 2D'
     })
     declare format: string;
+
+    @Default(50)
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false,
+        comment: 'Popularity score 0–100. Updated by admin or nightly job. Used by pricing engine for surcharges.'
+    })
+    declare popularityScore: number;
 
     @HasMany(() => Showtime)
     declare showtimes: Showtime[];

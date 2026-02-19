@@ -11,6 +11,7 @@ import {
     LogOut,
     Ticket as TicketIcon,
     ChevronLeft,
+    TrendingUp,
     Edit2,
     Trash2,
     Monitor,
@@ -26,11 +27,14 @@ import { useWebSocket } from '../context/WebSocketContextDefinition';
 import { onMessageListener } from '../config/firebase';
 import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Seat, SeatTierConfig, DashboardStats } from '../types';
 import { AxiosError } from 'axios';
+import PricingRuleManager from '../components/PricingRuleManager';
+import CouponManager from '../components/CouponManager';
+import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
 
 // Types are imported from '../types'
 
 const AdminDashboard: React.FC = () => {
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet'>('theaters');
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet' | 'pricing' | 'coupons'>('theaters');
     const [walletRequests, setWalletRequests] = useState<WalletRequest[]>([]);
     const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
     const [theaters, setTheaters] = useState<Theater[]>([]);
@@ -52,7 +56,7 @@ const AdminDashboard: React.FC = () => {
     const [newMovie, setNewMovie] = useState<Partial<Movie>>({
         title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D'
     });
-    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} as Record<string, number> });
+    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} as Record<string, number>, occupancyThreshold: 70 });
     const [newShowtimeDate, setNewShowtimeDate] = useState('');
     const [newShowtimeTime, setNewShowtimeTime] = useState('');
     const [selectedScreenTiers, setSelectedScreenTiers] = useState<string[]>([]);
@@ -397,7 +401,7 @@ const AdminDashboard: React.FC = () => {
                 tierPrices: newShowtime.tierPrices
             });
 
-            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} });
+            setNewShowtime({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {}, occupancyThreshold: 70 });
             setNewShowtimeDate('');
             setNewShowtimeTime('');
             setSelectedScreenTiers([]);
@@ -453,7 +457,7 @@ const AdminDashboard: React.FC = () => {
         try {
             const response = await api.get(`/admin/screens/${screenId}/tiers`);
             setSelectedScreenTiers(response.data);
-            setNewShowtime({ ...newShowtime, screenId, tierPrices: {} });
+            setNewShowtime({ ...newShowtime, screenId, tierPrices: {}, occupancyThreshold: 70 });
         } catch (error: unknown) {
             console.error(error);
             setSelectedScreenTiers([]);
@@ -505,13 +509,28 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    const handleRecalculatePopularity = async () => {
+        if (!window.confirm('Recalculate popularity scores for all movies based on last 7 days of bookings?')) return;
+        try {
+            await api.post('/movies/popularity/recalculate');
+            alert('Popularity scores updated!');
+            const moviesRes = await api.get('/movies'); // Refresh list
+            setMovies(moviesRes.data);
+        } catch (error) {
+            console.error(error);
+            alert('Failed to recalculate popularity.');
+        }
+    };
+
     const tabs = [
         { id: 'theaters' as const, label: 'Theaters', icon: LayoutDashboard },
         { id: 'movies' as const, label: 'Movies', icon: Film },
         ...(auth.user?.role !== 'super_admin' ? [{ id: 'showtimes' as const, label: 'Showtimes', icon: Calendar }] : []),
         { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon },
         ...(auth.user?.role === 'super_admin' ? [{ id: 'users' as const, label: 'Users', icon: Users }] : []),
-        ...(auth.user?.role === 'super_admin' ? [{ id: 'wallet' as const, label: 'Wallet', icon: Wallet }] : [])
+        ...(auth.user?.role === 'super_admin' ? [{ id: 'wallet' as const, label: 'Wallet', icon: Wallet }] : []),
+        ...(auth.user?.role === 'super_admin' ? [{ id: 'pricing' as const, label: 'Pricing Rules', icon: Star }] : []),
+        { id: 'coupons' as const, label: 'Coupons', icon: Bell },
     ];
 
     return (
@@ -532,7 +551,7 @@ const AdminDashboard: React.FC = () => {
                             <div>
                                 <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
                                     <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider">System Management</p>
                                 </div>
                             </div>
@@ -542,7 +561,7 @@ const AdminDashboard: React.FC = () => {
                             <>
                                 <div className="text-right">
                                     <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Revenue</p>
-                                    <p className="text-xl font-bold text-emerald-500">₹{Number(dashboardStats.totalRevenue).toFixed(2)}</p>
+                                    <p className="text-xl font-bold text-amber-400">₹{Number(dashboardStats.totalRevenue).toFixed(2)}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Owners</p>
@@ -557,11 +576,11 @@ const AdminDashboard: React.FC = () => {
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Earnings</p>
-                                    <p className="text-xl font-bold text-emerald-500">₹{Number(dashboardStats.totalEarnings).toFixed(2)}</p>
+                                    <p className="text-xl font-bold text-amber-400">₹{Number(dashboardStats.totalEarnings).toFixed(2)}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Commission Paid</p>
-                                    <p className="text-xl font-bold text-amber-500">₹{Number(dashboardStats.commissionPaid).toFixed(2)}</p>
+                                    <p className="text-xl font-bold text-amber-400">₹{Number(dashboardStats.commissionPaid).toFixed(2)}</p>
                                 </div>
                             </>
                         ) : null}
@@ -569,19 +588,21 @@ const AdminDashboard: React.FC = () => {
                         <div className="flex items-center gap-3">
                             <div className="hidden sm:flex flex-col items-end mr-2">
                                 <p className="text-sm font-semibold">{auth.user?.name}</p>
-                                <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">Administrator</p>
+                                <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">Administrator</p>
                             </div>
-                            <button
-                                onClick={() => setCurrentTab('wallet')}
-                                className="relative p-2 rounded-full bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
-                            >
-                                <Bell className="w-5 h-5" />
-                                {pendingRequestsCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                                        {pendingRequestsCount}
-                                    </span>
-                                )}
-                            </button>
+                            {auth.user?.role === 'super_admin' && (
+                                <button
+                                    onClick={() => setCurrentTab('wallet')}
+                                    className="relative p-2 rounded-full bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
+                                >
+                                    <Bell className="w-5 h-5" />
+                                    {pendingRequestsCount > 0 && (
+                                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                                            {pendingRequestsCount}
+                                        </span>
+                                    )}
+                                </button>
+                            )}
                             <motion.button
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
@@ -612,7 +633,7 @@ const AdminDashboard: React.FC = () => {
                                     {isActive && (
                                         <motion.div
                                             layoutId="activeTab"
-                                            className="absolute inset-0 bg-emerald-500 rounded-2xl shadow-lg shadow-emerald-500/20"
+                                            className="absolute inset-0 bg-amber-500 rounded-2xl shadow-lg shadow-amber-500/20"
                                             transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
                                         />
                                     )}
@@ -643,8 +664,8 @@ const AdminDashboard: React.FC = () => {
                                     <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44">
                                         <div className="space-y-1">
                                             <h3 className="text-xl font-bold flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                                                    <Plus className="w-4 h-4 text-emerald-500" />
+                                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                                                    <Plus className="w-4 h-4 text-amber-400" />
                                                 </div>
                                                 Add Theater
                                             </h3>
@@ -659,7 +680,7 @@ const AdminDashboard: React.FC = () => {
                                                     placeholder="e.g. Cineplex Downtown"
                                                     value={newTheater.name}
                                                     onChange={(e) => setNewTheater({ ...newTheater, name: e.target.value })}
-                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
+                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all"
                                                 />
                                             </div>
                                             <div className="space-y-2">
@@ -671,7 +692,7 @@ const AdminDashboard: React.FC = () => {
                                                         placeholder="City, Area"
                                                         value={newTheater.location}
                                                         onChange={(e) => setNewTheater({ ...newTheater, location: e.target.value })}
-                                                        className="w-full h-14 pl-12 pr-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all"
+                                                        className="w-full h-14 pl-12 pr-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all"
                                                     />
                                                 </div>
                                             </div>
@@ -679,7 +700,7 @@ const AdminDashboard: React.FC = () => {
                                                 whileHover={{ scale: 1.02 }}
                                                 whileTap={{ scale: 0.98 }}
                                                 onClick={handleCreateTheater}
-                                                className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                                className="w-full h-14 rounded-2xl bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors mt-2"
                                             >
                                                 Create Theater
                                             </motion.button>
@@ -700,12 +721,12 @@ const AdminDashboard: React.FC = () => {
                                         <motion.div
                                             key={theater.id}
                                             layout
-                                            className="rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden group hover:border-emerald-500/20 transition-colors"
+                                            className="rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden group hover:border-amber-500/20 transition-colors"
                                         >
                                             <div className="p-6">
                                                 <div className="flex items-start justify-between mb-6">
                                                     <div className="space-y-1">
-                                                        <h4 className="text-xl font-bold group-hover:text-emerald-400 transition-colors">{theater.name}</h4>
+                                                        <h4 className="text-xl font-bold group-hover:text-amber-400 transition-colors">{theater.name}</h4>
                                                         <div className="text-sm text-neutral-500 flex items-center gap-2">
                                                             <div className="w-5 h-5 rounded-md bg-neutral-800 flex items-center justify-center">
                                                                 <MapPin className="w-3 h-3" />
@@ -718,7 +739,7 @@ const AdminDashboard: React.FC = () => {
                                                                     <Users className="w-3 h-3" />
                                                                 </div>
                                                                 <span className="text-neutral-400">Owner:</span>
-                                                                <span className="text-emerald-500 font-medium">{theater.owner.name}</span>
+                                                                <span className="text-amber-400 font-medium">{theater.owner.name}</span>
                                                                 <span className="text-neutral-600 text-xs">({theater.owner.email})</span>
                                                             </div>
                                                         )}
@@ -748,7 +769,7 @@ const AdminDashboard: React.FC = () => {
                                                             <motion.div
                                                                 key={screen.id}
                                                                 layout
-                                                                className="group/screen flex items-center justify-between p-4 rounded-2xl bg-neutral-800 border border-transparent hover:border-emerald-500/30 hover:bg-neutral-800/80 transition-all"
+                                                                className="group/screen flex items-center justify-between p-4 rounded-2xl bg-neutral-800 border border-transparent hover:border-amber-500/30 hover:bg-neutral-800/80 transition-all"
                                                             >
                                                                 {editingScreen?.id === screen.id ? (
                                                                     <div className="flex flex-1 gap-2">
@@ -757,10 +778,10 @@ const AdminDashboard: React.FC = () => {
                                                                             autoFocus
                                                                             value={editingScreen.name}
                                                                             onChange={(e) => setEditingScreen({ ...editingScreen, name: e.target.value })}
-                                                                            className="flex-1 h-9 px-3 rounded-xl bg-neutral-900 border border-white/10 text-xs focus:outline-none focus:border-emerald-500/50"
+                                                                            className="flex-1 h-9 px-3 rounded-xl bg-neutral-900 border border-white/10 text-xs focus:outline-none focus:border-amber-500/50"
                                                                         />
                                                                         <div className="flex gap-1">
-                                                                            <button onClick={handleUpdateScreen} className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center">
+                                                                            <button onClick={handleUpdateScreen} className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center">
                                                                                 <Plus className="w-3.5 h-3.5 rotate-45" style={{ transform: 'rotate(0deg)' }} />
                                                                                 {/* Just using Plus as Placeholder for checkmark in lucide? No, I'll use text */}
                                                                                 <span className="text-[10px] font-bold">OK</span>
@@ -773,8 +794,8 @@ const AdminDashboard: React.FC = () => {
                                                                 ) : (
                                                                     <>
                                                                         <div className="flex items-center gap-3">
-                                                                            <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-white/5 flex items-center justify-center group-hover/screen:border-emerald-500/20 transition-colors">
-                                                                                <Monitor className="w-4 h-4 text-emerald-500/60" />
+                                                                            <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-white/5 flex items-center justify-center group-hover/screen:border-amber-500/20 transition-colors">
+                                                                                <Monitor className="w-4 h-4 text-amber-400/60" />
                                                                             </div>
                                                                             <span className="text-sm font-bold">{screen.name}</span>
                                                                         </div>
@@ -782,7 +803,7 @@ const AdminDashboard: React.FC = () => {
                                                                             <div className="flex gap-1.5 opacity-0 group-hover/screen:opacity-100 transition-opacity">
                                                                                 <button
                                                                                     onClick={() => setGenScreenId(screen.id)}
-                                                                                    className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold tracking-tight hover:bg-emerald-500/20 transition-colors"
+                                                                                    className="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 text-[10px] font-bold tracking-tight hover:bg-amber-500/20 transition-colors"
                                                                                 >
                                                                                     Layout
                                                                                 </button>
@@ -815,9 +836,9 @@ const AdminDashboard: React.FC = () => {
                                                                         placeholder="Screen name..."
                                                                         value={newScreenName}
                                                                         onChange={(e) => setNewScreenName(e.target.value)}
-                                                                        className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 border border-transparent text-sm focus:outline-none focus:border-emerald-500/30"
+                                                                        className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 border border-transparent text-sm focus:outline-none focus:border-amber-500/30"
                                                                     />
-                                                                    <button onClick={() => handleAddScreen(theater.id)} className="px-4 h-10 rounded-xl bg-emerald-500 text-white text-xs font-bold">Add</button>
+                                                                    <button onClick={() => handleAddScreen(theater.id)} className="px-4 h-10 rounded-xl bg-amber-500 text-white text-xs font-bold">Add</button>
                                                                     <button onClick={() => { setSelectedTheaterId(null); setNewScreenName(''); }} className="w-10 h-10 rounded-xl bg-neutral-700 text-white flex items-center justify-center">
                                                                         <X className="w-4 h-4" />
                                                                     </button>
@@ -827,7 +848,7 @@ const AdminDashboard: React.FC = () => {
                                                                     whileHover={{ scale: 1.01 }}
                                                                     whileTap={{ scale: 0.99 }}
                                                                     onClick={() => setSelectedTheaterId(theater.id)}
-                                                                    className="flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/10 text-emerald-500/80 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all text-xs font-bold"
+                                                                    className="flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/10 text-amber-400/80 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5 transition-all text-xs font-bold"
                                                                 >
                                                                     <Plus className="w-3.5 h-3.5" />
                                                                     Add New Screen
@@ -860,7 +881,7 @@ const AdminDashboard: React.FC = () => {
                                         whileHover={{ scale: 1.02 }}
                                         whileTap={{ scale: 0.98 }}
                                         onClick={() => setShowRequestModal(true)}
-                                        className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-bold transition-colors shadow-lg shadow-emerald-500/20"
+                                        className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-white rounded-2xl font-bold transition-colors shadow-lg shadow-amber-500/20"
                                     >
                                         <Plus className="w-5 h-5" />
                                         Request Missing Movie
@@ -875,8 +896,8 @@ const AdminDashboard: React.FC = () => {
                                         <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
                                             <div className="space-y-1">
                                                 <h3 className="text-xl font-bold flex items-center gap-2">
-                                                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                                                        <Plus className="w-4 h-4 text-emerald-500" />
+                                                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                                                        <Plus className="w-4 h-4 text-amber-400" />
                                                     </div>
                                                     Add Movie
                                                 </h3>
@@ -886,70 +907,70 @@ const AdminDashboard: React.FC = () => {
                                             <div className="space-y-4">
                                                 <div className="space-y-2">
                                                     <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Title</label>
-                                                    <input type="text" placeholder="Movie Title" value={newMovie.title || ''} onChange={(e) => setNewMovie({ ...newMovie, title: e.target.value })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all" />
+                                                    <input type="text" placeholder="Movie Title" value={newMovie.title || ''} onChange={(e) => setNewMovie({ ...newMovie, title: e.target.value })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all" />
                                                 </div>
                                                 <div className="space-y-2">
                                                     <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Description</label>
-                                                    <textarea placeholder="Plot summary..." value={newMovie.description || ''} onChange={(e) => setNewMovie({ ...newMovie, description: e.target.value })} className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all resize-none" />
+                                                    <textarea placeholder="Plot summary..." value={newMovie.description || ''} onChange={(e) => setNewMovie({ ...newMovie, description: e.target.value })} className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all resize-none" />
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Genre</label>
-                                                        <input type="text" placeholder="Action..." value={newMovie.genre || ''} onChange={(e) => setNewMovie({ ...newMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                        <input type="text" placeholder="Action..." value={newMovie.genre || ''} onChange={(e) => setNewMovie({ ...newMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Mins</label>
-                                                        <input type="number" placeholder="120" value={newMovie.duration || ''} onChange={(e) => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
+                                                        <input type="number" placeholder="120" value={newMovie.duration || ''} onChange={(e) => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-center" />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Rating</label>
-                                                        <input type="text" placeholder="8.5" value={newMovie.rating || ''} onChange={(e) => setNewMovie({ ...newMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-center" />
+                                                        <input type="text" placeholder="8.5" value={newMovie.rating || ''} onChange={(e) => setNewMovie({ ...newMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-center" />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
-                                                        <input type="date" value={newMovie.releaseDate || ''} onChange={(e) => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-xs" />
+                                                        <input type="date" value={newMovie.releaseDate || ''} onChange={(e) => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-xs" />
                                                     </div>
                                                 </div>
 
                                                 <div className="grid grid-cols-3 gap-4">
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Language</label>
-                                                        <input type="text" placeholder="English" value={newMovie.language || ''} onChange={(e) => setNewMovie({ ...newMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                        <input type="text" placeholder="English" value={newMovie.language || ''} onChange={(e) => setNewMovie({ ...newMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Audio</label>
-                                                        <input type="text" placeholder="Dolby Atmos" value={newMovie.audio || ''} onChange={(e) => setNewMovie({ ...newMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                        <input type="text" placeholder="Dolby Atmos" value={newMovie.audio || ''} onChange={(e) => setNewMovie({ ...newMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Format</label>
-                                                        <input type="text" placeholder="IMAX 2D" value={newMovie.format || ''} onChange={(e) => setNewMovie({ ...newMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                        <input type="text" placeholder="IMAX 2D" value={newMovie.format || ''} onChange={(e) => setNewMovie({ ...newMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
                                                     <div className="flex justify-between items-center">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
-                                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
                                                             Upload
                                                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', false)} />
                                                         </label>
                                                     </div>
-                                                    <input type="text" placeholder="https://..." value={newMovie.posterUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                    <input type="text" placeholder="https://..." value={newMovie.posterUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                                 </div>
                                                 <div className="space-y-2">
                                                     <div className="flex justify-between items-center">
                                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
-                                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
                                                             Upload
                                                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', false)} />
                                                         </label>
                                                     </div>
-                                                    <input type="text" placeholder="https://..." value={newMovie.bannerUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                    <input type="text" placeholder="https://..." value={newMovie.bannerUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                                 </div>
                                                 <motion.button
                                                     whileHover={{ scale: 1.02 }}
                                                     whileTap={{ scale: 0.98 }}
                                                     onClick={handleCreateMovie}
-                                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors mt-2"
                                                 >
                                                     Create Movie
                                                 </motion.button>
@@ -959,69 +980,87 @@ const AdminDashboard: React.FC = () => {
                                 )}
 
                                 {/* Movie List */}
-                                <div className="grid md:grid-cols-2 gap-6">
-                                    {movies.length === 0 ? (
-                                        <div className="col-span-full h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
-                                            <Film className="w-12 h-12 mb-3 opacity-20" />
-                                            <p className="font-medium">No movies added yet</p>
-                                        </div>
-                                    ) : (
-                                        movies.map((movie) => (
-                                            <motion.div
-                                                key={movie.id}
-                                                layout
-                                                initial={{ opacity: 0, scale: 0.95 }}
-                                                animate={{ opacity: 1, scale: 1 }}
-                                                className="group relative rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden hover:border-emerald-500/30 transition-all"
+                                <div className="space-y-4">
+                                    {auth.user?.role === 'super_admin' && (
+                                        <div className="flex justify-end">
+                                            <button
+                                                onClick={handleRecalculatePopularity}
+                                                className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-bold transition-colors border border-white/5"
                                             >
-                                                <div className="flex aspect-[1.8/1]">
-                                                    <div className="w-1/3 relative overflow-hidden">
-                                                        <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent to-neutral-900"></div>
-                                                    </div>
-                                                    <div className="flex-1 p-5 space-y-3 flex flex-col justify-center">
-                                                        <div className="space-y-1">
-                                                            <h4 className="text-lg font-bold line-clamp-1 group-hover:text-emerald-400 transition-colors">{movie.title}</h4>
-                                                            <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">{movie.description}</p>
-                                                        </div>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">{movie.genre}</span>
-                                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
-                                                                <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
-                                                                <span className="text-[10px] font-bold text-amber-500">{movie.rating}</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
-                                                                <Clock className="w-2.5 h-2.5 text-blue-400" />
-                                                                <span className="text-[10px] font-bold text-blue-400">{movie.duration}m</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {/* Action Buttons Overlay */}
-                                                {auth.user?.role === 'super_admin' && (
-                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <motion.button
-                                                            whileHover={{ scale: 1.1 }}
-                                                            whileTap={{ scale: 0.9 }}
-                                                            onClick={() => setEditingMovie(movie)}
-                                                            className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-emerald-500 hover:border-emerald-500 transition-all"
-                                                        >
-                                                            <Edit2 className="w-4 h-4" />
-                                                        </motion.button>
-                                                        <motion.button
-                                                            whileHover={{ scale: 1.1 }}
-                                                            whileTap={{ scale: 0.9 }}
-                                                            onClick={() => handleDeleteMovie(movie.id)}
-                                                            className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-red-500 hover:border-red-500 transition-all"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </motion.button>
-                                                    </div>
-                                                )}
-                                            </motion.div>
-                                        ))
+                                                <TrendingUp className="w-4 h-4 text-amber-400" />
+                                                Recalculate Popularity
+                                            </button>
+                                        </div>
                                     )}
+
+                                    <div className="grid md:grid-cols-2 gap-6">
+                                        {movies.length === 0 ? (
+                                            <div className="col-span-full h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
+                                                <Film className="w-12 h-12 mb-3 opacity-20" />
+                                                <p className="font-medium">No movies added yet</p>
+                                            </div>
+                                        ) : (
+                                            movies.map((movie) => (
+                                                <motion.div
+                                                    key={movie.id}
+                                                    layout
+                                                    initial={{ opacity: 0, scale: 0.95 }}
+                                                    animate={{ opacity: 1, scale: 1 }}
+                                                    className="group relative rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden hover:border-amber-500/30 transition-all"
+                                                >
+                                                    <div className="flex aspect-[1.8/1]">
+                                                        <div className="w-1/3 relative overflow-hidden">
+                                                            <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-neutral-900"></div>
+                                                        </div>
+                                                        <div className="flex-1 p-5 space-y-3 flex flex-col justify-center">
+                                                            <div className="space-y-1">
+                                                                <h4 className="text-lg font-bold line-clamp-1 group-hover:text-amber-400 transition-colors">{movie.title}</h4>
+                                                                <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">{movie.description}</p>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">{movie.genre}</span>
+                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
+                                                                    <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-500" />
+                                                                    <span className="text-[10px] font-bold text-amber-400">{movie.rating}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20">
+                                                                    <TrendingUp className="w-2.5 h-2.5 text-purple-400" />
+                                                                    <span className="text-[10px] font-bold text-purple-400">{movie.popularityScore ?? 50}%</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
+                                                                    <Clock className="w-2.5 h-2.5 text-blue-400" />
+                                                                    <span className="text-[10px] font-bold text-blue-400">{movie.duration}m</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Action Buttons Overlay */}
+                                                    {auth.user?.role === 'super_admin' && (
+                                                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <motion.button
+                                                                whileHover={{ scale: 1.1 }}
+                                                                whileTap={{ scale: 0.9 }}
+                                                                onClick={() => setEditingMovie(movie)}
+                                                                className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-amber-500 hover:border-amber-500 transition-all"
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </motion.button>
+                                                            <motion.button
+                                                                whileHover={{ scale: 1.1 }}
+                                                                whileTap={{ scale: 0.9 }}
+                                                                onClick={() => handleDeleteMovie(movie.id)}
+                                                                className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-red-500 hover:border-red-500 transition-all"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </motion.button>
+                                                        </div>
+                                                    )}
+                                                </motion.div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </motion.div>
@@ -1041,8 +1080,8 @@ const AdminDashboard: React.FC = () => {
                                 <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
                                     <div className="space-y-1">
                                         <h3 className="text-xl font-bold flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                                                <Calendar className="w-4 h-4 text-emerald-500" />
+                                            <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                                                <Calendar className="w-4 h-4 text-amber-400" />
                                             </div>
                                             Add Showtime
                                         </h3>
@@ -1052,14 +1091,14 @@ const AdminDashboard: React.FC = () => {
                                     <div className="space-y-4 text-sm">
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Movie</label>
-                                            <select value={newShowtime.movieId} onChange={(e) => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 appearance-none transition-all">
+                                            <select value={newShowtime.movieId} onChange={(e) => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 appearance-none transition-all">
                                                 <option value={0}>Choose a movie...</option>
                                                 {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
                                             </select>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Screen</label>
-                                            <select value={newShowtime.screenId} onChange={(e) => handleScreenSelect(parseInt(e.target.value))} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 appearance-none transition-all">
+                                            <select value={newShowtime.screenId} onChange={(e) => handleScreenSelect(parseInt(e.target.value))} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 appearance-none transition-all">
                                                 <option value={0}>Choose a screen...</option>
                                                 {theaters.flatMap(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
                                             </select>
@@ -1067,12 +1106,28 @@ const AdminDashboard: React.FC = () => {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
-                                                <input type="date" value={newShowtimeDate} onChange={(e) => setNewShowtimeDate(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-xs" />
+                                                <input type="date" value={newShowtimeDate} onChange={(e) => setNewShowtimeDate(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-xs" />
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Time</label>
-                                                <input type="time" value={newShowtimeTime} onChange={(e) => setNewShowtimeTime(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-emerald-500/50" />
+                                                <input type="time" value={newShowtimeTime} onChange={(e) => setNewShowtimeTime(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
                                             </div>
+                                        </div>
+                                        <div className="space-y-2 pt-2">
+                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Demand Surge Threshold (%)</label>
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    step="5"
+                                                    value={newShowtime.occupancyThreshold ?? 70}
+                                                    onChange={(e) => setNewShowtime({ ...newShowtime, occupancyThreshold: parseInt(e.target.value) })}
+                                                    className="flex-1 h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                />
+                                                <span className="text-sm font-bold text-amber-400 w-12 text-right">{newShowtime.occupancyThreshold ?? 70}%</span>
+                                            </div>
+                                            <p className="text-[10px] text-neutral-600">Occupancy above this % triggers surge pricing.</p>
                                         </div>
 
                                         {selectedScreenTiers.length > 0 && (
@@ -1084,7 +1139,7 @@ const AdminDashboard: React.FC = () => {
                                                             <span className="font-bold text-neutral-300">{tier}</span>
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-neutral-500 font-bold">₹</span>
-                                                                <input type="number" min="1" placeholder="0" value={newShowtime.tierPrices[tier] || ''} onChange={(e) => setNewShowtime({ ...newShowtime, tierPrices: { ...newShowtime.tierPrices, [tier]: parseFloat(e.target.value) } })} className="w-20 h-9 px-2 rounded-lg bg-neutral-900 border border-transparent focus:border-emerald-500/50 text-center font-bold text-emerald-400" />
+                                                                <input type="number" min="1" placeholder="0" value={newShowtime.tierPrices[tier] || ''} onChange={(e) => setNewShowtime({ ...newShowtime, tierPrices: { ...newShowtime.tierPrices, [tier]: parseFloat(e.target.value) } })} className="w-20 h-9 px-2 rounded-lg bg-neutral-900 border border-transparent focus:border-amber-500/50 text-center font-bold text-amber-400" />
                                                             </div>
                                                         </div>
                                                     ))}
@@ -1096,7 +1151,7 @@ const AdminDashboard: React.FC = () => {
                                             whileHover={{ scale: 1.02 }}
                                             whileTap={{ scale: 0.98 }}
                                             onClick={handleCreateShowtime}
-                                            className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2"
+                                            className="w-full h-14 rounded-2xl bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors mt-2"
                                         >
                                             Create Showtime
                                         </motion.button>
@@ -1116,19 +1171,19 @@ const AdminDashboard: React.FC = () => {
                                         <motion.div
                                             key={showtime.id}
                                             layout
-                                            className="group relative rounded-3xl bg-neutral-900 border border-white/5 p-6 hover:border-emerald-500/30 hover:bg-neutral-900/80 transition-all"
+                                            className="group relative rounded-3xl bg-neutral-900 border border-white/5 p-6 hover:border-amber-500/30 hover:bg-neutral-900/80 transition-all"
                                         >
                                             <div className="flex items-start justify-between">
                                                 <div className="flex gap-5">
-                                                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center justify-center shrink-0">
-                                                        <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{new Date(showtime.startTime).toLocaleDateString([], { month: 'short' })}</span>
-                                                        <span className="text-lg font-black text-emerald-400">{new Date(showtime.startTime).getDate()}</span>
+                                                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col items-center justify-center shrink-0">
+                                                        <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">{new Date(showtime.startTime).toLocaleDateString([], { month: 'short' })}</span>
+                                                        <span className="text-lg font-black text-amber-400">{new Date(showtime.startTime).getDate()}</span>
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <h4 className="text-lg font-bold group-hover:text-emerald-400 transition-colors">{showtime.movie?.title}</h4>
+                                                        <h4 className="text-lg font-bold group-hover:text-amber-400 transition-colors">{showtime.movie?.title}</h4>
                                                         <div className="flex flex-wrap gap-x-4 gap-y-1">
                                                             <p className="text-sm text-neutral-500 flex items-center gap-2">
-                                                                <MapPin className="w-3.5 h-3.5 text-emerald-500/60" />
+                                                                <MapPin className="w-3.5 h-3.5 text-amber-400/60" />
                                                                 {showtime.screen?.theater?.name} • {showtime.screen?.name}
                                                             </p>
                                                             <p className="text-sm text-neutral-400 flex items-center gap-2 font-semibold">
@@ -1171,7 +1226,7 @@ const AdminDashboard: React.FC = () => {
                                             <p className="text-xs text-neutral-500 mb-2">{booking.user?.name} ({booking.user?.email})</p>
                                             <div className="flex flex-wrap gap-2 text-xs">
                                                 <span className="px-2 py-1 rounded-lg bg-neutral-800">{booking.showtime?.screen?.theater?.name}</span>
-                                                <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-400">₹{booking.totalAmount}</span>
+                                                <span className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-400">₹{booking.totalAmount}</span>
                                                 <span className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-400">{booking.status}</span>
                                             </div>
                                         </div>
@@ -1198,7 +1253,7 @@ const AdminDashboard: React.FC = () => {
                                         placeholder="Search users by name or email..."
                                         value={userSearch}
                                         onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
-                                        className="w-full h-12 pl-12 pr-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 focus:bg-neutral-900 transition-all text-white placeholder:text-neutral-500"
+                                        className="w-full h-12 pl-12 pr-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-amber-500/50 focus:bg-neutral-900 transition-all text-white placeholder:text-neutral-500"
                                     />
                                     <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                                 </div>
@@ -1207,7 +1262,7 @@ const AdminDashboard: React.FC = () => {
                                     <select
                                         value={userRoleFilter}
                                         onChange={(e) => { setUserRoleFilter(e.target.value); setUserPage(1); }}
-                                        className="h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-white cursor-pointer"
+                                        className="h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-white cursor-pointer"
                                     >
                                         <option value="all">All Roles</option>
                                         <option value="user">User</option>
@@ -1227,132 +1282,139 @@ const AdminDashboard: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Users Table */}
-                            <div className="bg-neutral-900 rounded-3xl border border-white/5 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left">
-                                        <thead>
-                                            <tr className="border-b border-white/5 bg-white/5">
-                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest">User</th>
-                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest">Role</th>
-                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest">Status</th>
-                                                <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-widest text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-white/5">
-                                            {isUsersLoading ? (
-                                                <tr>
-                                                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">
-                                                        <div className="flex justify-center items-center gap-2">
-                                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0s' }}></div>
-                                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                            <Table>
+                                <THead>
+                                    <TR>
+                                        <TH>User</TH>
+                                        <TH>Role</TH>
+                                        <TH>Status</TH>
+                                        <TH className="text-right">Actions</TH>
+                                    </TR>
+                                </THead>
+                                <TBody>
+                                    {isUsersLoading ? (
+                                        <TR>
+                                            <TD colSpan={4} className="px-6 py-12 text-center text-neutral-500">
+                                                <div className="flex justify-center items-center gap-2">
+                                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0s' }} />
+                                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0.1s' }} />
+                                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
+                                                </div>
+                                            </TD>
+                                        </TR>
+                                    ) : users.length === 0 ? (
+                                        <TR>
+                                            <TD colSpan={4} className="px-6 py-12 text-center text-neutral-500">
+                                                No users found.
+                                            </TD>
+                                        </TR>
+                                    ) : (
+                                        users.map((user) => (
+                                            <TR key={user.id}>
+                                                <TD>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 border border-white/5">
+                                                            <Users className="w-5 h-5" />
                                                         </div>
-                                                    </td>
-                                                </tr>
-                                            ) : users.length === 0 ? (
-                                                <tr>
-                                                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">No users found.</td>
-                                                </tr>
-                                            ) : (
-                                                users.map((user) => (
-                                                    <tr key={user.id} className="hover:bg-white/5 transition-colors group">
-                                                        <td className="px-6 py-4">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 border border-white/5">
-                                                                    <Users className="w-5 h-5" />
-                                                                </div>
-                                                                <div>
-                                                                    <p className="font-bold text-white">{user.name}</p>
-                                                                    <p className="text-xs text-neutral-500">{user.email}</p>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${user.role === 'super_admin'
-                                                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                                                                : user.role === 'admin'
-                                                                    ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                                                                    : 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-                                                                }`}>
-                                                                {user.role}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            {user.adminRequestStatus === 'PENDING' && (
-                                                                <div className="flex gap-2">
-                                                                    <button
-                                                                        onClick={() => handleApproveOwnerRequest(user.id, 'APPROVE')}
-                                                                        className="px-3 py-1.5 bg-emerald-500 text-white text-xs font-bold rounded-lg hover:bg-emerald-400"
-                                                                    >
-                                                                        Approve
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleApproveOwnerRequest(user.id, 'REJECT')}
-                                                                        className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-bold rounded-lg hover:bg-red-500/20"
-                                                                    >
-                                                                        Reject
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                            {user.role === 'admin' && (
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-neutral-400">Commission:</span>
-                                                                    <button
-                                                                        onClick={() => { setEditingCommissionUser(user); setNewCommissionRate(Number(user.commissionRate) || 10); }}
-                                                                        className="px-2 py-1 rounded bg-neutral-800 border border-white/10 hover:border-emerald-500/50 text-xs font-mono text-emerald-500 transition-colors"
-                                                                    >
-                                                                        {user.commissionRate}%
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                            {user.adminRequestStatus === 'REJECTED' && (
-                                                                <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-1 rounded">Request Rejected</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right">
-                                                            <button
-                                                                onClick={() => { setNotifUserId(user.id); setNotifForm({ ...notifForm, title: 'Message from Admin' }); }}
-                                                                className="opacity-0 group-hover:opacity-100 px-3 py-1.5 rounded-lg bg-neutral-800 text-neutral-300 text-xs font-bold hover:bg-neutral-700 transition-all border border-white/5"
-                                                            >
-                                                                Message
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            )}
-                                        </tbody>
-                                        {/* Pagination Footer */}
-                                        <tfoot>
-                                            <tr>
-                                                <td colSpan={4} className="px-6 py-4 border-t border-white/5">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-xs text-neutral-500">
-                                                            Page <span className="text-white font-bold">{userPage}</span> of {userTotalPages}
-                                                        </span>
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={() => setUserPage(p => Math.max(1, p - 1))}
-                                                                disabled={userPage === 1}
-                                                                className="px-4 py-2 rounded-xl bg-neutral-800 disabled:opacity-50 text-xs font-bold hover:bg-neutral-700 transition-colors"
-                                                            >
-                                                                Previous
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setUserPage(p => Math.min(userTotalPages, p + 1))}
-                                                                disabled={userPage === userTotalPages}
-                                                                className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 disabled:opacity-50 text-xs font-bold hover:bg-emerald-500/20 transition-colors"
-                                                            >
-                                                                Next
-                                                            </button>
+                                                        <div>
+                                                            <p className="font-bold text-white">{user.name}</p>
+                                                            <p className="text-xs text-neutral-500">{user.email}</p>
                                                         </div>
                                                     </div>
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-                            </div>
+                                                </TD>
+                                                <TD>
+                                                    <span
+                                                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${
+                                                            user.role === 'super_admin'
+                                                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                                                : user.role === 'admin'
+                                                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                                                    : 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                                                        }`}
+                                                    >
+                                                        {user.role}
+                                                    </span>
+                                                </TD>
+                                                <TD>
+                                                    {user.adminRequestStatus === 'PENDING' && (
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => handleApproveOwnerRequest(user.id, 'APPROVE')}
+                                                                className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-400"
+                                                            >
+                                                                Approve
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleApproveOwnerRequest(user.id, 'REJECT')}
+                                                                className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-bold rounded-lg hover:bg-red-500/20"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {user.role === 'admin' && (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-neutral-400">Commission:</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingCommissionUser(user);
+                                                                    setNewCommissionRate(Number(user.commissionRate) || 10);
+                                                                }}
+                                                                className="px-2 py-1 rounded bg-neutral-800 border border-white/10 hover:border-amber-500/50 text-xs font-mono text-amber-400 transition-colors"
+                                                            >
+                                                                {user.commissionRate}%
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {user.adminRequestStatus === 'REJECTED' && (
+                                                        <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-1 rounded">
+                                                            Request Rejected
+                                                        </span>
+                                                    )}
+                                                </TD>
+                                                <TD className="text-right">
+                                                    <button
+                                                        onClick={() => {
+                                                            setNotifUserId(user.id);
+                                                            setNotifForm({ ...notifForm, title: 'Message from Admin' });
+                                                        }}
+                                                        className="px-3 py-1.5 rounded-lg bg-neutral-800 text-neutral-300 text-xs font-bold hover:bg-neutral-700 transition-all border border-white/5"
+                                                    >
+                                                        Message
+                                                    </button>
+                                                </TD>
+                                            </TR>
+                                        ))
+                                    )}
+                                </TBody>
+                                <tfoot>
+                                    <TR>
+                                        <TD colSpan={4} className="px-6 py-4 border-t border-[var(--border)]">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs text-neutral-500">
+                                                    Page <span className="text-white font-bold">{userPage}</span> of {userTotalPages}
+                                                </span>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => setUserPage((p) => Math.max(1, p - 1))}
+                                                        disabled={userPage === 1}
+                                                        className="px-4 py-2 rounded-xl bg-neutral-800 disabled:opacity-50 text-xs font-bold hover:bg-neutral-700 transition-colors"
+                                                    >
+                                                        Previous
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setUserPage((p) => Math.min(userTotalPages, p + 1))}
+                                                        disabled={userPage === userTotalPages}
+                                                        className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 disabled:opacity-50 text-xs font-bold hover:bg-amber-500/20 transition-colors"
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </TD>
+                                    </TR>
+                                </tfoot>
+                            </Table>
                         </motion.div>
                     )}
 
@@ -1394,7 +1456,7 @@ const AdminDashboard: React.FC = () => {
                                                     max="100"
                                                     value={newCommissionRate}
                                                     onChange={(e) => setNewCommissionRate(parseFloat(e.target.value))}
-                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-950 transition-all font-bold text-lg"
+                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all font-bold text-lg"
                                                 />
                                                 <span className="absolute right-6 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">%</span>
                                             </div>
@@ -1412,7 +1474,7 @@ const AdminDashboard: React.FC = () => {
                                             </button>
                                             <button
                                                 onClick={handleUpdateCommission}
-                                                className="flex-1 h-12 rounded-xl bg-emerald-500 font-bold text-white hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
+                                                className="flex-1 h-12 rounded-xl bg-amber-500 font-bold text-white hover:bg-amber-400 transition-colors shadow-lg shadow-amber-500/20"
                                             >
                                                 Update Rate
                                             </button>
@@ -1448,7 +1510,7 @@ const AdminDashboard: React.FC = () => {
                                                     <p className="text-sm text-neutral-400">{user.email}</p>
                                                 </div>
                                                 <div className="text-right">
-                                                    <span className="text-lg font-bold text-emerald-500">₹{user.walletBalance || 0}</span>
+                                                    <span className="text-lg font-bold text-amber-400">₹{user.walletBalance || 0}</span>
                                                 </div>
                                             </div>
                                         ))}
@@ -1468,14 +1530,14 @@ const AdminDashboard: React.FC = () => {
                                         {walletRequests.map(req => (
                                             <div key={req.id} className="p-4 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-between">
                                                 <div>
-                                                    <p className="font-bold text-white"><span className="text-emerald-500">₹{req.amount}</span> via {req.paymentMethod}</p>
+                                                    <p className="font-bold text-white"><span className="text-amber-400">₹{req.amount}</span> via {req.paymentMethod}</p>
                                                     <p className="text-sm text-neutral-400">{req.user?.name} ({req.user?.email})</p>
                                                     <p className="text-xs text-neutral-600 font-mono mt-1">{req.transactionRef}</p>
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <button
                                                         onClick={() => handleApproveRequest(req.id)}
-                                                        className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-500 font-bold hover:bg-emerald-500/20 transition-colors"
+                                                        className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-400 font-bold hover:bg-amber-500/20 transition-colors"
                                                     >
                                                         Approve
                                                     </button>
@@ -1529,7 +1591,7 @@ const AdminDashboard: React.FC = () => {
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
                                         <label className="text-sm font-medium text-neutral-400">Tiers</label>
-                                        <button onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 150 }])} className="text-sm text-emerald-400 font-semibold">+ Add Tier</button>
+                                        <button onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 150 }])} className="text-sm text-amber-400 font-semibold">+ Add Tier</button>
                                     </div>
                                     <div className="space-y-2">
                                         {seatTiers.map((tier, idx) => (
@@ -1545,7 +1607,7 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <button onClick={() => handleGenerateSeats(genScreenId)} className="w-full h-12 rounded-xl bg-emerald-500 text-white font-semibold">
+                                <button onClick={() => handleGenerateSeats(genScreenId)} className="w-full h-12 rounded-xl bg-amber-500 text-white font-semibold">
                                     Generate Seats
                                 </button>
                             </div>
@@ -1595,7 +1657,7 @@ const AdminDashboard: React.FC = () => {
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-center">
                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
-                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
                                             Upload
                                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', true)} />
                                         </label>
@@ -1605,14 +1667,14 @@ const AdminDashboard: React.FC = () => {
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-center">
                                         <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
-                                        <label className="text-xs text-emerald-500 cursor-pointer hover:text-emerald-400 font-bold">
+                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
                                             Upload
                                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', true)} />
                                         </label>
                                     </div>
                                     <input type="text" value={editingMovie.bannerUrl || ''} onChange={(e) => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
                                 </div>
-                                <button onClick={handleUpdateMovie} className="w-full h-12 rounded-xl bg-emerald-500 text-white font-semibold">Update Movie</button>
+                                <button onClick={handleUpdateMovie} className="w-full h-12 rounded-xl bg-amber-500 text-white font-semibold">Update Movie</button>
                             </div>
                         </motion.div>
                     </motion.div>
@@ -1658,7 +1720,7 @@ const AdminDashboard: React.FC = () => {
                                         placeholder="e.g. Inception"
                                         value={requestMovieName}
                                         onChange={(e) => setRequestMovieName(e.target.value)}
-                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all font-bold"
+                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all font-bold"
                                     />
                                 </div>
 
@@ -1668,7 +1730,7 @@ const AdminDashboard: React.FC = () => {
                                         placeholder="Any specific details..."
                                         value={requestNotes}
                                         onChange={(e) => setRequestNotes(e.target.value)}
-                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all resize-none font-medium leading-relaxed"
+                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all resize-none font-medium leading-relaxed"
                                     />
                                 </div>
 
@@ -1676,7 +1738,7 @@ const AdminDashboard: React.FC = () => {
                                     whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={handleRequestMovie}
-                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all flex items-center justify-center gap-3"
+                                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-all flex items-center justify-center gap-3"
                                 >
                                     <Plus className="w-5 h-5" />
                                     Send Request
@@ -1734,7 +1796,7 @@ const AdminDashboard: React.FC = () => {
                                                 onClick={() => setNotifForm({ ...notifForm, type })}
                                                 className={`h-11 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${notifForm.type === type
                                                     ? type === 'info' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-                                                        : type === 'success' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                                        : type === 'success' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
                                                             : 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
                                                     : 'bg-neutral-800 text-neutral-500 hover:bg-neutral-700'
                                                     }`}
@@ -1751,7 +1813,7 @@ const AdminDashboard: React.FC = () => {
                                         <select
                                             value={notifForm.audience}
                                             onChange={(e) => setNotifForm({ ...notifForm, audience: e.target.value })}
-                                            className="w-full h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-emerald-500/50 text-white cursor-pointer"
+                                            className="w-full h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-white cursor-pointer"
                                         >
                                             <option value="users">All Users</option>
                                             <option value="admins">All Admins</option>
@@ -1767,7 +1829,7 @@ const AdminDashboard: React.FC = () => {
                                         placeholder="Headline..."
                                         value={notifForm.title}
                                         onChange={(e) => setNotifForm({ ...notifForm, title: e.target.value })}
-                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all font-bold"
+                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all font-bold"
                                     />
                                 </div>
 
@@ -1777,7 +1839,7 @@ const AdminDashboard: React.FC = () => {
                                         placeholder="Detailed content..."
                                         value={notifForm.message}
                                         onChange={(e) => setNotifForm({ ...notifForm, message: e.target.value })}
-                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50 transition-all resize-none font-medium leading-relaxed"
+                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all resize-none font-medium leading-relaxed"
                                     />
                                 </div>
 
@@ -1786,7 +1848,7 @@ const AdminDashboard: React.FC = () => {
                                     whileTap={{ scale: 0.98 }}
                                     onClick={handleSendNotification}
                                     disabled={isSendingNotif}
-                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
                                 >
                                     {isSendingNotif ? (
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -1799,6 +1861,44 @@ const AdminDashboard: React.FC = () => {
                                 </motion.button>
                             </div>
                         </motion.div>
+                    </motion.div>
+                )}
+
+                {/* PRICING RULES TAB — Super Admin only */}
+                {currentTab === 'pricing' && auth.user?.role === 'super_admin' && (
+                    <motion.div
+                        key="pricing"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="space-y-6"
+                    >
+                        <div>
+                            <h2 className="text-2xl font-bold">Pricing Rules</h2>
+                            <p className="text-sm text-neutral-500 mt-1">Configure global dynamic pricing rules applied to all tickets.</p>
+                        </div>
+                        <PricingRuleManager />
+                    </motion.div>
+                )}
+
+                {/* COUPONS TAB — Admin & Super Admin */}
+                {currentTab === 'coupons' && (
+                    <motion.div
+                        key="coupons"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="space-y-6"
+                    >
+                        <div>
+                            <h2 className="text-2xl font-bold">Coupon Codes</h2>
+                            <p className="text-sm text-neutral-500 mt-1">
+                                {auth.user?.role === 'super_admin'
+                                    ? 'Manage all coupon codes across the platform.'
+                                    : 'Create and manage coupon codes scoped to your movies and showtimes.'}
+                            </p>
+                        </div>
+                        <CouponManager />
                     </motion.div>
                 )}
             </AnimatePresence>

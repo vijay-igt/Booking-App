@@ -78,9 +78,9 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
 
     const getIcon = (type: string) => {
         switch (type) {
-            case 'success': return <CheckCircle className="w-5 h-5 text-emerald-400" />;
+            case 'success': return <CheckCircle className="w-5 h-5 text-amber-400" />;
             case 'warning': return <AlertTriangle className="w-5 h-5 text-amber-400" />;
-            default: return <Info className="w-5 h-5 text-blue-400" />;
+            default: return <Info className="w-5 h-5 text-amber-400" />;
         }
     };
 
@@ -109,8 +109,8 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                             {/* Header */}
                             <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                                        <Bell className="w-5 h-5 text-blue-400" />
+                                    <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+                                        <Bell className="w-5 h-5 text-amber-400" />
                                     </div>
                                     <div>
                                         <h2 className="font-bold text-lg">Notifications</h2>
@@ -139,7 +139,7 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                                     </button>
                                     <button
                                         onClick={markAllAsRead}
-                                        className="text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                                        className="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1"
                                     >
                                         <Check className="w-3 h-3" />
                                         Mark all as read
@@ -151,7 +151,7 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                                 {loading && notifications.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-40">
-                                        <div className="w-8 h-8 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-3"></div>
+                                        <div className="w-8 h-8 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin mb-3"></div>
                                         <p className="text-sm text-neutral-500">Loading notifications...</p>
                                     </div>
                                 ) : notifications.length === 0 ? (
@@ -185,7 +185,7 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                                                             {notif.title}
                                                         </h4>
                                                         {!notif.isRead && (
-                                                            <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1.5" />
+                                                            <div className="w-2 h-2 rounded-full bg-amber-500 shrink-0 mt-1.5" />
                                                         )}
                                                     </div>
                                                     <p className="text-xs text-neutral-400 leading-relaxed mb-3">
@@ -199,7 +199,7 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                                                             {!notif.isRead && (
                                                                 <button
                                                                     onClick={() => markAsRead(notif.id)}
-                                                                    className="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-wider"
+                                                                    className="text-[10px] font-bold text-amber-400 hover:text-amber-300 uppercase tracking-wider"
                                                                 >
                                                                     Mark as read
                                                                 </button>

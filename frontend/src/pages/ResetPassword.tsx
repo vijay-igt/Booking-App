@@ -55,7 +55,7 @@ const ResetPassword: React.FC = () => {
                     <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h1 className="text-2xl font-bold mb-2">Invalid Link</h1>
                     <p className="text-neutral-500 mb-6">This password reset link is missing its token and cannot be used.</p>
-                    <Link to="/forgot-password" className="bg-emerald-500 px-6 py-3 rounded-xl font-bold inline-block">
+                    <Link to="/forgot-password" className="bg-amber-500 hover:bg-amber-400 text-black px-6 py-3 rounded-xl font-bold inline-block">
                         Request New Link
                     </Link>
                 </div>
@@ -65,7 +65,7 @@ const ResetPassword: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-neutral-950 text-white flex flex-col relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
 
             <div className="flex-1 flex items-center justify-center px-5 py-12 relative z-10">
                 <motion.div
@@ -80,7 +80,7 @@ const ResetPassword: React.FC = () => {
                             transition={{ delay: 0.2, type: 'spring' }}
                             className="w-16 h-16 rounded-3xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mx-auto mb-6"
                         >
-                            <KeyRound className="w-8 h-8 text-emerald-500" />
+                            <KeyRound className="w-8 h-8 text-amber-500" />
                         </motion.div>
                         <h1 className="text-3xl font-bold mb-3">Set New Password</h1>
                         <p className="text-neutral-500">
@@ -114,7 +114,7 @@ const ResetPassword: React.FC = () => {
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
                                             placeholder="••••••••"
-                                            className="w-full h-14 pl-12 pr-12 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                            className="w-full h-14 pl-12 pr-12 rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-colors"
                                             required
                                         />
                                         <button
@@ -136,7 +136,7 @@ const ResetPassword: React.FC = () => {
                                             value={confirmPassword}
                                             onChange={(e) => setConfirmPassword(e.target.value)}
                                             placeholder="••••••••"
-                                            className="w-full h-14 pl-12 pr-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                                            className="w-full h-14 pl-12 pr-4 rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder:text-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-colors"
                                             required
                                         />
                                     </div>
@@ -145,7 +145,7 @@ const ResetPassword: React.FC = () => {
                                 <button
                                     type="submit"
                                     disabled={isLoading}
-                                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+                                    className="w-full h-14 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-4"
                                 >
                                     {isLoading ? (
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -162,10 +162,10 @@ const ResetPassword: React.FC = () => {
                                 key="success"
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
-                                className="text-center p-8 rounded-3xl bg-emerald-500/5 border border-emerald-500/10"
+                                className="text-center p-8 rounded-2xl bg-amber-500/5 border border-amber-500/10"
                             >
-                                <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6">
-                                    <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                                <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-6">
+                                    <CheckCircle2 className="w-10 h-10 text-amber-500" />
                                 </div>
                                 <h2 className="text-xl font-bold mb-2">Password Reset!</h2>
                                 <p className="text-neutral-500 mb-6">
@@ -176,7 +176,7 @@ const ResetPassword: React.FC = () => {
                                         initial={{ width: 0 }}
                                         animate={{ width: "100%" }}
                                         transition={{ duration: 3 }}
-                                        className="h-full bg-emerald-500"
+                                        className="h-full bg-amber-500"
                                     />
                                 </div>
                             </motion.div>

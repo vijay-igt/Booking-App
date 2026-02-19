@@ -3,6 +3,7 @@ import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, Plus, Clock, ArrowUpRight, ArrowDownLeft, CreditCard, XCircle, AlertCircle } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
+import SiteFooter from '../components/SiteFooter';
 import { useWebSocket } from '../context/WebSocketContextDefinition';
 import { useAuth } from '../context/useAuth';
 
@@ -103,10 +104,10 @@ const WalletPage: React.FC = () => {
     return (
         <div className="min-h-screen bg-[#0a0a0b] pb-24">
             {/* Header */}
-            <div className="bg-gradient-to-b from-neutral-900/80 to-[#0a0a0b] backdrop-blur-xl border-b border-white/5 sticky top-0 z-40 px-6 py-6">
+            <div className="bg-[var(--bg-base)] border-b border-neutral-800 sticky top-0 z-40 px-6 py-6">
                 <div className="max-w-md mx-auto flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                        <Wallet className="w-5 h-5 text-emerald-500" />
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+                        <Wallet className="w-5 h-5 text-amber-500" />
                     </div>
                     <div>
                         <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-neutral-400">My Wallet</h1>
@@ -117,12 +118,12 @@ const WalletPage: React.FC = () => {
 
             <div className="max-w-md mx-auto px-6 py-8 space-y-8">
                 {/* Balance Card */}
-                <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-emerald-500 to-emerald-700 p-8 shadow-2xl shadow-emerald-900/50">
+                <div className="relative overflow-hidden rounded-2xl bg-neutral-900 border border-neutral-800 p-8">
                     <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
                         <Wallet className="w-32 h-32" />
                     </div>
                     <div className="relative z-10">
-                        <p className="text-emerald-100 font-medium mb-1 opacity-80">
+                        <p className="text-neutral-400 font-medium mb-1">
                             {user?.role === 'user' && 'Available Balance'}
                             {user?.role === 'admin' && 'Total Earnings'}
                             {user?.role === 'super_admin' && 'Platform Revenue'}
@@ -135,7 +136,7 @@ const WalletPage: React.FC = () => {
                                     whileHover={{ scale: 1.05 }}
                                     whileTap={{ scale: 0.95 }}
                                     onClick={() => setIsTopUpOpen(true)}
-                                    className="flex-1 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center gap-2 text-white font-bold text-sm border border-white/10 hover:bg-white/30 transition-all"
+                                    className="flex-1 h-12 bg-amber-500 hover:bg-amber-400 rounded-xl flex items-center justify-center gap-2 text-black font-bold text-sm transition-all"
                                 >
                                     <Plus className="w-4 h-4" />
                                     Add Money
@@ -154,7 +155,7 @@ const WalletPage: React.FC = () => {
                         </h3>
                         <div className="space-y-3">
                             {requests.map(req => (
-                                <div key={req.id} className="bg-neutral-900/50 border border-white/5 rounded-2xl p-4 flex items-center justify-between">
+                                <div key={req.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
                                             <AlertCircle className="w-5 h-5 text-amber-500" />
@@ -190,10 +191,10 @@ const WalletPage: React.FC = () => {
                                     key={txn.id}
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    className="bg-neutral-900/50 border border-white/5 rounded-2xl p-4 flex items-center justify-between hover:bg-neutral-800/50 transition-colors"
+                                    className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex items-center justify-between hover:bg-neutral-800 transition-colors"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${txn.type === 'CREDIT' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${txn.type === 'CREDIT' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'
                                             }`}>
                                             {txn.type === 'CREDIT' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
                                         </div>
@@ -202,7 +203,7 @@ const WalletPage: React.FC = () => {
                                             <p className="text-xs text-neutral-500">{new Date(txn.createdAt).toLocaleDateString()}</p>
                                         </div>
                                     </div>
-                                    <span className={`font-bold ${txn.type === 'CREDIT' ? 'text-emerald-500' : 'text-neutral-200'}`}>
+                                    <span className={`font-bold ${txn.type === 'CREDIT' ? 'text-amber-500' : 'text-neutral-200'}`}>
                                         {txn.type === 'CREDIT' ? '+' : '-'}₹{txn.amount}
                                     </span>
                                 </motion.div>
@@ -212,6 +213,7 @@ const WalletPage: React.FC = () => {
                 </div>
             </div>
 
+            <SiteFooter />
             <BottomNav />
 
             {/* Top-up Modal */}
@@ -247,7 +249,7 @@ const WalletPage: React.FC = () => {
                                             type="number"
                                             value={topUpAmount}
                                             onChange={(e) => setTopUpAmount(e.target.value)}
-                                            className="w-full h-14 pl-10 pr-4 bg-neutral-800 rounded-2xl border border-transparent focus:border-emerald-500/50 text-white font-bold text-lg outline-none transition-all"
+                                            className="w-full h-14 pl-10 pr-4 bg-neutral-800 rounded-xl border border-neutral-700 focus:border-amber-500 text-white font-bold text-lg outline-none transition-all"
                                             placeholder="0.00"
                                             autoFocus
                                         />
@@ -270,7 +272,7 @@ const WalletPage: React.FC = () => {
                                     <div className="grid grid-cols-2 gap-3">
                                         <button
                                             onClick={() => setPaymentMethod('UPI')}
-                                            className={`h-16 rounded-2xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'UPI' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-500' : 'border-neutral-800 bg-neutral-800/50 text-neutral-500'
+                                            className={`h-16 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'UPI' ? 'border-amber-500 bg-amber-500/10 text-amber-500' : 'border-neutral-800 bg-neutral-800/50 text-neutral-500'
                                                 }`}
                                         >
                                             <CreditCard className="w-5 h-5" />
@@ -278,7 +280,7 @@ const WalletPage: React.FC = () => {
                                         </button>
                                         <button
                                             onClick={() => setPaymentMethod('CARD')}
-                                            className={`h-16 rounded-2xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'CARD' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-500' : 'border-neutral-800 bg-neutral-800/50 text-neutral-500'
+                                            className={`h-16 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'CARD' ? 'border-amber-500 bg-amber-500/10 text-amber-500' : 'border-neutral-800 bg-neutral-800/50 text-neutral-500'
                                                 }`}
                                         >
                                             <CreditCard className="w-5 h-5" />
@@ -288,7 +290,7 @@ const WalletPage: React.FC = () => {
                                 </div>
                                 <button
                                     onClick={handleTopUp}
-                                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 rounded-2xl text-white font-bold shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
+                                    className="w-full h-14 bg-amber-500 hover:bg-amber-400 rounded-xl text-black font-bold transition-all active:scale-95"
                                 >
                                     Proceed to Pay
                                 </button>

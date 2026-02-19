@@ -1,4 +1,4 @@
-import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, ForeignKey, BelongsTo, HasMany } from 'sequelize-typescript';
+import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, ForeignKey, BelongsTo, HasMany, Default } from 'sequelize-typescript';
 import { Movie } from './Movie';
 import { Screen } from './Screen';
 import { Booking } from './Booking';
@@ -57,6 +57,14 @@ export class Showtime extends Model {
         allowNull: true,
     })
     declare tierPrices: any; // e.g. { "Classic": 150, "Premium": 300 }
+
+    @Default(70)
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false,
+        comment: 'Occupancy % above which DEMAND_SURGE pricing rule activates. Default 70%.'
+    })
+    declare occupancyThreshold: number;
 
     @HasMany(() => Booking)
     declare bookings: Booking[];

@@ -10,7 +10,7 @@ import { Theater } from '../models/Theater';
 
 export const createShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { movieId, screenId, startTime, endTime, tierPrices } = req.body;
+        const { movieId, screenId, startTime, endTime, tierPrices, occupancyThreshold } = req.body;
         const user = req.user!;
 
         // Ownership Check
@@ -110,7 +110,10 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        const showtime = await Showtime.create({ movieId, screenId, startTime, endTime, tierPrices });
+        const showtime = await Showtime.create({
+            movieId, screenId, startTime, endTime, tierPrices,
+            occupancyThreshold: occupancyThreshold ?? 70
+        });
         console.log('Showtime created successfully:', showtime.id);
         res.status(201).json(showtime);
     } catch (error) {
@@ -200,7 +203,7 @@ export const getShowtimeSeats = async (req: Request, res: Response): Promise<voi
 export const updateShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id as string);
-        const { movieId, screenId, startTime, endTime, tierPrices } = req.body;
+        const { movieId, screenId, startTime, endTime, tierPrices, occupancyThreshold } = req.body;
         const user = req.user!;
 
         const showtime = await Showtime.findByPk(id, {
@@ -279,7 +282,7 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
             }
         }
 
-        await showtime.update({ movieId, screenId, startTime, endTime, tierPrices });
+        await showtime.update({ movieId, screenId, startTime, endTime, tierPrices, occupancyThreshold });
         res.json(showtime);
     } catch (error) {
         console.error('Error updating showtime:', error);
