@@ -6,11 +6,12 @@ import { Showtime } from '../models/Showtime';
 import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
 import { Booking } from '../models/Booking';
+import { Watchlist } from '../models/Watchlist';
 import { getProducer } from '../config/kafkaClient';
 
 export const createMovie = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate, language, audio, format } = req.body;
+        const { title, description, genre, duration, rating, posterUrl, bannerUrl, trailerUrl, releaseDate, language, audio, format } = req.body;
         const userId = req.user?.id;
 
         if (duration <= 0) {
@@ -29,11 +30,12 @@ export const createMovie = async (req: Request, res: Response): Promise<void> =>
             rating,
             posterUrl,
             bannerUrl,
+            trailerUrl,
             releaseDate: formattedDate,
             language,
             audio,
             format,
-            ownerId: userId || null // Set ownerId if user is logged in
+            ownerId: userId || null
         });
         res.status(201).json(movie);
     } catch (error) {
@@ -55,6 +57,19 @@ export const getMovies = async (req: Request, res: Response): Promise<void> => {
         }
 
         const movies = await Movie.findAll({ where: whereClause });
+        if (user) {
+            const watchlistEntries = await Watchlist.findAll({
+                where: { userId: user.id },
+                attributes: ['movieId'],
+            });
+            const watchlistedIds = new Set(watchlistEntries.map(w => w.movieId));
+            const moviesWithFlag = movies.map(m => ({
+                ...m.toJSON(),
+                isInWatchlist: watchlistedIds.has(m.id),
+            }));
+            res.json(moviesWithFlag);
+            return;
+        }
         res.json(movies);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching movies', error });
@@ -103,7 +118,18 @@ export const getMovieById = async (req: Request, res: Response): Promise<void> =
         } catch (eventError) {
             console.error('Failed to publish movie view event:', eventError);
         }
-
+        const userId = req.user?.id;
+        if (userId) {
+            const watchlistEntry = await Watchlist.findOne({
+                where: { userId, movieId: id },
+            });
+            const payload = {
+                ...movie.toJSON(),
+                isInWatchlist: !!watchlistEntry,
+            };
+            res.json(payload);
+            return;
+        }
         res.json(movie);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching movie', error });
@@ -113,7 +139,7 @@ export const getMovieById = async (req: Request, res: Response): Promise<void> =
 export const updateMovie = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id as string);
-        const { title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate, language, audio, format } = req.body;
+        const { title, description, genre, duration, rating, posterUrl, bannerUrl, trailerUrl, releaseDate, language, audio, format } = req.body;
         const user = req.user!;
 
         const movie = await Movie.findByPk(id);
@@ -137,7 +163,7 @@ export const updateMovie = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
-        await movie.update({ title, description, genre, duration, rating, posterUrl, bannerUrl, releaseDate: formattedDate, language, audio, format });
+        await movie.update({ title, description, genre, duration, rating, posterUrl, bannerUrl, trailerUrl, releaseDate: formattedDate, language, audio, format });
         res.json(movie);
     } catch (error) {
         console.error('Update Movie Error:', error);
@@ -255,5 +281,171 @@ export const recalculatePopularity = async (req: Request, res: Response): Promis
     } catch (error) {
         console.error('Popularity Calc Error:', error);
         res.status(500).json({ message: 'Error calculating popularity', error });
+    }
+};
+
+export const getRecommendations = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+
+        if (userId) {
+            const recentBookings = await Booking.findAll({
+                where: {
+                    userId,
+                    status: 'confirmed'
+                },
+                include: [{
+                    model: Showtime,
+                    attributes: ['movieId'],
+                    required: true
+                }],
+                order: [['createdAt', 'DESC']],
+                limit: 20
+            });
+
+            const watchedMovieIds = Array.from(
+                new Set(
+                    recentBookings
+                        .map(b => (b as any).showtime?.movieId)
+                        .filter((id: number | undefined) => typeof id === 'number')
+                )
+            ) as number[];
+
+            if (watchedMovieIds.length > 0) {
+                const watchedMovies = await Movie.findAll({
+                    where: { id: watchedMovieIds }
+                });
+
+                const genreCounts: Record<string, number> = {};
+                watchedMovies.forEach(m => {
+                    if (!m.genre) return;
+                    m.genre.split(',').map(g => g.trim()).forEach(g => {
+                        if (!g) return;
+                        genreCounts[g] = (genreCounts[g] || 0) + 1;
+                    });
+                });
+
+                const sortedGenres = Object.entries(genreCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([genre]) => genre);
+
+                const topGenres = sortedGenres.slice(0, 3);
+
+                const whereClause: any = {};
+                if (topGenres.length > 0) {
+                    whereClause.genre = {
+                        [Op.or]: topGenres.map(g => ({ [Op.like]: `%${g}%` }))
+                    };
+                }
+                if (watchedMovieIds.length > 0) {
+                    whereClause.id = { [Op.notIn]: watchedMovieIds };
+                }
+
+                const personalizedMovies = await Movie.findAll({
+                    where: whereClause,
+                    order: [['popularityScore', 'DESC']],
+                    limit: 12
+                });
+
+                if (personalizedMovies.length > 0) {
+                    res.json(personalizedMovies);
+                    return;
+                }
+            }
+        }
+
+        const fallbackMovies = await Movie.findAll({
+            order: [['popularityScore', 'DESC']],
+            limit: 12
+        });
+        res.json(fallbackMovies);
+    } catch (error) {
+        console.error('Get Recommendations Error:', error);
+        res.status(500).json({ message: 'Error fetching recommendations', error });
+    }
+};
+
+export const addToWatchlist = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+        const movieId = parseInt(req.params.id as string);
+        const { location } = req.body as { location?: string };
+
+        if (!userId) {
+            res.status(401).json({ message: 'Authentication required' });
+            return;
+        }
+
+        const movie = await Movie.findByPk(movieId);
+        if (!movie) {
+            res.status(404).json({ message: 'Movie not found' });
+            return;
+        }
+
+        const [entry] = await Watchlist.findOrCreate({
+            where: { userId, movieId },
+            defaults: { userId, movieId, location },
+        });
+
+        if (location && entry.location !== location) {
+            entry.location = location;
+            await entry.save();
+        }
+
+        res.status(201).json({ message: 'Added to watchlist' });
+    } catch (error) {
+        console.error('Add to Watchlist Error:', error);
+        res.status(500).json({ message: 'Error adding to watchlist', error });
+    }
+};
+
+export const removeFromWatchlist = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+        const movieId = parseInt(req.params.id as string);
+
+        if (!userId) {
+            res.status(401).json({ message: 'Authentication required' });
+            return;
+        }
+
+        await Watchlist.destroy({
+            where: { userId, movieId },
+        });
+
+        res.status(200).json({ message: 'Removed from watchlist' });
+    } catch (error) {
+        console.error('Remove from Watchlist Error:', error);
+        res.status(500).json({ message: 'Error removing from watchlist', error });
+    }
+};
+
+export const getWatchlist = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+
+        if (!userId) {
+            res.status(401).json({ message: 'Authentication required' });
+            return;
+        }
+
+        const entries = await Watchlist.findAll({
+            where: { userId },
+            include: [Movie],
+            order: [['createdAt', 'DESC']],
+        });
+
+        const movies = entries
+            .map(entry => (entry as any).movie)
+            .filter((movie: Movie | undefined) => !!movie)
+            .map((movie: Movie) => ({
+                ...movie.toJSON(),
+                isInWatchlist: true,
+            }));
+
+        res.json(movies);
+    } catch (error) {
+        console.error('Get Watchlist Error:', error);
+        res.status(500).json({ message: 'Error fetching watchlist', error });
     }
 };

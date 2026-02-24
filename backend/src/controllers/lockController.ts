@@ -29,10 +29,6 @@ export const lockSeats = async (req: Request, res: Response): Promise<void> => {
 export const unlockSeats = async (req: Request, res: Response): Promise<void> => {
     try {
         const { showtimeId, seatIds } = req.body;
-        // Ideally we should validate that the user OWNS the lock before unlocking,
-        // but for now, releaseLock just deletes the key.
-        // A malicious user could unlock others' seats if they guess the IDs?
-        // Yes. So let's validate first.
         const userId = req.user!.id;
         const isValid = await LockService.validateLock(showtimeId, seatIds, userId);
 

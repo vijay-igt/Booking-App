@@ -7,6 +7,8 @@ import { Seat } from '../models/Seat';
 import { Ticket } from '../models/Ticket';
 import { Booking } from '../models/Booking';
 import { Theater } from '../models/Theater';
+import { Watchlist } from '../models/Watchlist';
+import { getProducer } from '../config/kafkaClient';
 
 export const createShowtime = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -115,6 +117,38 @@ export const createShowtime = async (req: Request, res: Response): Promise<void>
             occupancyThreshold: occupancyThreshold ?? 70
         });
         console.log('Showtime created successfully:', showtime.id);
+
+        const theaterLocation = screen.theater?.location;
+        if (theaterLocation) {
+            const watchlistEntries = await Watchlist.findAll({
+                where: { movieId, location: theaterLocation },
+                attributes: ['userId'],
+            });
+
+            if (watchlistEntries.length > 0) {
+                const producer = await getProducer();
+                if (producer) {
+                    const title = 'Showtimes now available';
+                    const movieTitle = movie.title || 'this movie';
+                    const message = `New showtimes for ${movieTitle} are now available in ${theaterLocation}.`;
+
+                    const messages = watchlistEntries.map(entry => ({
+                        value: JSON.stringify({
+                            userId: entry.userId,
+                            title,
+                            message,
+                            type: 'info',
+                        }),
+                    }));
+
+                    await producer.send({
+                        topic: 'single-notifications',
+                        messages,
+                    });
+                }
+            }
+        }
+
         res.status(201).json(showtime);
     } catch (error) {
         console.error('Error creating showtime:', error);
@@ -143,7 +177,12 @@ export const getShowtimesByMovie = async (req: Request, res: Response): Promise<
                 movieId,
                 startTime: { [Op.gte]: new Date() } // Only show future showtimes
             },
-            include: [Screen],
+            include: [
+                {
+                    model: Screen,
+                    include: [Theater]
+                }
+            ],
             order: [['startTime', 'ASC']]
         });
         res.json(showtimes);

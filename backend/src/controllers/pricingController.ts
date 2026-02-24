@@ -26,8 +26,26 @@ async function getActiveRules(): Promise<PricingRule[]> {
     const now = Date.now();
     if (rulesCache && now < rulesCacheExpiry) return rulesCache;
 
+    const today = new Date().toISOString().slice(0, 10);
+
     rulesCache = await PricingRule.findAll({
-        where: { isActive: true },
+        where: {
+            isActive: true,
+            [Op.and]: [
+                {
+                    [Op.or]: [
+                        { validFrom: null },
+                        { validFrom: { [Op.lte]: today } },
+                    ],
+                },
+                {
+                    [Op.or]: [
+                        { validUntil: null },
+                        { validUntil: { [Op.gte]: today } },
+                    ],
+                },
+            ],
+        },
         order: [['priority', 'ASC'], ['id', 'ASC']],
     });
     rulesCacheExpiry = now + 60_000; // 60 seconds

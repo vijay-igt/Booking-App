@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getUserNotifications, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications, subscribeToPush, unsubscribeFromPush } from '../controllers/notificationController';
+import { getUserNotifications, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications, subscribeToPush, unsubscribeFromPush, getUnreadCount } from '../controllers/notificationController';
 import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
@@ -7,6 +7,7 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/', getUserNotifications);
+router.get('/unread/count', getUnreadCount);
 router.post('/subscribe', subscribeToPush);
 router.post('/unsubscribe', unsubscribeFromPush);
 router.put('/:id/read', markAsRead);

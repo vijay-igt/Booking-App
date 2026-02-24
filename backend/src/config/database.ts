@@ -16,7 +16,9 @@ import { PushSubscription } from '../models/PushSubscription';
 import { PricingRule } from '../models/PricingRule';
 import { Coupon } from '../models/Coupon';
 import { CouponUsage } from '../models/CouponUsage';
-
+import { SupportTicket } from '../models/SupportTicket';
+import { SupportTicketReply } from '../models/SupportTicketReply';
+import { Watchlist } from '../models/Watchlist';
 dotenv.config();
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -24,7 +26,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 export const sequelize = process.env.DATABASE_URL
     ? new Sequelize(process.env.DATABASE_URL, {
         dialect: 'postgres',
-        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction, Wallet, PushSubscription, PricingRule, Coupon, CouponUsage],
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction, Wallet, PushSubscription, PricingRule, Coupon, CouponUsage, SupportTicket, SupportTicketReply, Watchlist],
         logging: false,
         dialectOptions: isProduction ? {
             ssl: {
@@ -40,6 +42,6 @@ export const sequelize = process.env.DATABASE_URL
         password: process.env.DB_PASSWORD || 'postgres',
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT || '5432'),
-        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction, Wallet, PushSubscription, PricingRule, Coupon, CouponUsage],
+        models: [User, Theater, Screen, Seat, Booking, Movie, Showtime, Ticket, Notification, WalletRequest, Transaction, Wallet, PushSubscription, PricingRule, Coupon, CouponUsage, SupportTicket, SupportTicketReply, Watchlist],
         logging: false,
     });

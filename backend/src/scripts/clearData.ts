@@ -3,7 +3,11 @@ import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
 import { Booking } from '../models/Booking';
 import { Ticket } from '../models/Ticket';
-import { User } from '../models/User'; // To reset walletBalance in User model
+import { User } from '../models/User';
+import { Coupon } from '../models/Coupon';
+import { CouponUsage } from '../models/CouponUsage';
+import { Notification } from '../models/Notification';
+import { WalletRequest } from '../models/WalletRequest';
 const clearData = async () => {
     try {
         await sequelize.sync(); // Ensure tables are created if they don't exist
@@ -19,6 +23,18 @@ const clearData = async () => {
 
         console.log('Clearing Wallet data...');
         await Wallet.destroy({ truncate: true, cascade: true });
+
+        console.log('Clearing WalletRequest data...');
+        await WalletRequest.destroy({ truncate: true, cascade: true });
+
+        console.log('Clearing CouponUsage data...');
+        await CouponUsage.destroy({ truncate: true, cascade: true });
+
+        console.log('Clearing Coupon data...');
+        await Coupon.destroy({ truncate: true, cascade: true });
+
+        console.log('Clearing Notification data...');
+        await Notification.destroy({ truncate: true, cascade: true });
 
         // Reset walletBalance for all users to 0
         console.log('Resetting User wallet balances...');

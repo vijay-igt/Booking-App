@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ChevronLeft,
   Calendar,
   Clock,
   MapPin,
@@ -12,8 +10,9 @@ import {
   Ticket,
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
-import BottomNav from '../components/BottomNav';
+import Navbar from '../components/Navbar';
 import SiteFooter from '../components/SiteFooter';
+import { cn } from '../lib/utils';
 import * as htmlToImage from 'html-to-image';
 
 interface Booking {
@@ -48,24 +47,23 @@ const BookingHistory: React.FC = () => {
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
   const auth = useAuth();
-  const navigate = useNavigate();
 
   useEffect(() => {
-  if (!auth?.user) return;
+    if (!auth?.user) return;
 
-  const userId = auth.user.id; // ✅ store in local variable
+    const userId = auth.user.id; // ✅ store in local variable
 
-  (async () => {
-    try {
-      const res = await api.get(`/bookings/user/${userId}`);
-      setBookings(res.data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  })();
-}, [auth?.user]);
+    (async () => {
+      try {
+        const res = await api.get(`/bookings/user/${userId}`);
+        setBookings(res.data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [auth?.user]);
 
   const now = Date.now();
 
@@ -142,196 +140,195 @@ const BookingHistory: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white pb-24">
-      {/* Header */}
-      <div className="sticky top-0 z-50 bg-neutral-950/95 backdrop-blur border-b border-neutral-800">
-        <div className="px-4 py-4 flex items-center gap-3">
-          <button
-            onClick={() => navigate('/')}
-            className="w-9 h-9 rounded-full bg-neutral-900 flex items-center justify-center"
-          >
-            <ChevronLeft />
-          </button>
+    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-emerald-500/30">
+      <Navbar />
+
+      <div className="max-w-4xl mx-auto px-4 pt-24 pb-24">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div>
-            <h1 className="font-bold text-lg">My Bookings</h1>
-            <p className="text-xs text-neutral-500">
-              {bookings.length} tickets
+            <h1 className="text-4xl md:text-5xl font-black italic tracking-tighter bg-gradient-to-b from-white to-white/40 bg-clip-text text-transparent uppercase">
+              My Tickets
+            </h1>
+            <p className="text-sm text-neutral-500 font-medium mt-2 tracking-widest uppercase">
+              {bookings.length} Cinematic Experiences
             </p>
           </div>
-        </div>
 
-        {/* Tabs */}
-        <div className="flex px-4 gap-6">
-          {(['upcoming', 'past'] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="relative pb-3 capitalize"
-            >
-              <span
-                className={`text-sm font-semibold ${
-                  tab === t ? 'text-white' : 'text-neutral-500'
-                }`}
+          {/* Modern Tabs */}
+          <div className="flex p-1.5 bg-white/5 backdrop-blur-xl rounded-2xl border border-white/5">
+            {(['upcoming', 'past'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "relative px-8 py-2.5 text-xs font-black uppercase tracking-widest transition-all duration-300 rounded-xl overflow-hidden",
+                  tab === t ? "text-neutral-950" : "text-neutral-500 hover:text-white"
+                )}
               >
-                {t}
-              </span>
-              {tab === t && (
-                <motion.div
-                  layoutId="tab"
-                  className="absolute left-0 right-0 bottom-0 h-0.5 bg-amber-500 rounded-full"
-                />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 pt-5 space-y-5">
-        {list.length === 0 ? (
-          <div className="text-center py-24">
-            <div className="w-20 h-20 bg-neutral-900 rounded-full mx-auto flex items-center justify-center mb-4">
-              <Ticket className="w-10 h-10 text-neutral-600" />
-            </div>
-            <h3 className="font-semibold mb-2">No {tab} bookings</h3>
-            <p className="text-sm text-neutral-500">
-              {tab === 'upcoming'
-                ? 'Book a movie to see it here'
-                : 'Your past movies will appear here'}
-            </p>
-          </div>
-        ) : (
-          <AnimatePresence>
-            {list.map((b, i) => (
-              <motion.div
-                key={b.id}
-                id={`ticket-${b.id}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-                whileHover={{ y: -4 }}
-                className="relative card border border-neutral-800 rounded-2xl overflow-hidden"
-              >
-                {/* Perforation */}
-                <div className="absolute -left-3 top-1/2 w-6 h-6 bg-neutral-950 rounded-full -translate-y-1/2" />
-                <div className="absolute -right-3 top-1/2 w-6 h-6 bg-neutral-950 rounded-full -translate-y-1/2" />
-
-                {/* Poster */}
-                <div className="relative h-40">
-                  <img
-                    src={b.showtime.movie.posterUrl}
-                    className="w-full h-full object-cover"
+                <span className="relative z-10">{t}</span>
+                {tab === t && (
+                  <motion.div
+                    layoutId="tab-bg"
+                    className="absolute inset-0 bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent" />
-
-                  <div className="absolute bottom-3 left-3 right-3">
-                    <h3 className="text-xl font-extrabold tracking-tight">
-                      {b.showtime.movie.title}
-                    </h3>
-                    <p className="text-sm text-neutral-400">
-                      {b.showtime.screen.theater.name}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`absolute top-3 right-3 px-3 py-1 text-xs font-bold rounded-full ${
-                      b.status === 'confirmed'
-                        ? 'bg-amber-500/20 text-amber-400'
-                        : b.status === 'pending'
-                        ? 'bg-yellow-500/20 text-yellow-400'
-                        : 'bg-red-500/20 text-red-400'
-                    }`}
-                  >
-                    {b.status.toUpperCase()}
-                  </span>
-                </div>
-
-                {/* Details */}
-                <div className="p-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Info icon={<Calendar />} label="Date" value={formatDate(b.showtime.startTime)} />
-                    <Info icon={<Clock />} label="Time" value={formatTime(b.showtime.startTime)} />
-                  </div>
-
-                  <div>
-                    <Info
-                      icon={<MapPin />}
-                      label="Screen & Seats"
-                      value={b.showtime.screen.name}
-                    />
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {b.tickets.map((t, i) => (
-                        <span
-                          key={i}
-                          className="px-3 py-1 rounded-lg bg-neutral-800 text-xs font-bold"
-                        >
-                          {t.seat.row}
-                          {t.seat.number}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-dashed border-neutral-700" />
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-neutral-500">Total</p>
-                      <p className="text-2xl font-extrabold text-amber-400">
-                        ₹{b.totalAmount}
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <ActionBtn onClick={() => downloadTicket(b.id)} icon={<Download />} />
-                      <ActionBtn onClick={() => shareTicket(b)} icon={<Share2 />} />
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
+                )}
+              </button>
             ))}
-          </AnimatePresence>
-        )}
-      </div>
+          </div>
+        </div>
 
+        {/* Content */}
+        <div className="space-y-8">
+          {list.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center py-32 bg-white/5 backdrop-blur-2xl rounded-[3rem] border border-white/5 border-dashed"
+            >
+              <div className="w-24 h-24 bg-neutral-900/50 rounded-full mx-auto flex items-center justify-center mb-6 border border-white/5 shadow-2xl">
+                <Ticket className="w-12 h-12 text-neutral-700" />
+              </div>
+              <h3 className="text-2xl font-bold mb-2">No {tab} bookings found</h3>
+              <p className="text-neutral-500 text-sm max-w-xs mx-auto">
+                {tab === 'upcoming'
+                  ? 'Your next adventure is a click away. Explore the latest releases!'
+                  : 'You haven\'t watched any movies yet. Let\'s make some memories.'}
+              </p>
+            </motion.div>
+          ) : (
+            <AnimatePresence mode="popLayout">
+              {list.map((b, i) => (
+                <motion.div
+                  key={b.id}
+                  id={`ticket-${b.id}`}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ delay: i * 0.1 }}
+                  className="group relative bg-white/5 backdrop-blur-3xl rounded-[2.5rem] border border-white/10 overflow-hidden hover:border-emerald-500/30 transition-all duration-500"
+                >
+                  <div className="flex flex-col md:flex-row">
+                    {/* Poster Sidebar */}
+                    <div className="relative w-full md:w-48 h-64 md:h-auto overflow-hidden">
+                      <img
+                        src={b.showtime.movie.posterUrl}
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        alt={b.showtime.movie.title}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[#0a0a0a]/90 hidden md:block" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/90 via-transparent to-transparent md:hidden" />
+
+                      <div className="absolute top-4 left-4">
+                        <span className={cn(
+                          "px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] rounded-full backdrop-blur-md shadow-2xl",
+                          b.status === 'confirmed' ? "bg-emerald-500 text-neutral-950" :
+                            b.status === 'pending' ? "bg-amber-500 text-neutral-950" : "bg-red-500 text-white"
+                        )}>
+                          {b.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Ticket Details */}
+                    <div className="flex-1 p-8 md:p-10 relative">
+                      {/* Perforation Effect */}
+                      <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#0a0a0a] rounded-full z-10 hidden md:block" />
+
+                      <div className="flex flex-col h-full justify-between gap-8">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="text-3xl font-black tracking-tighter uppercase italic text-white group-hover:text-emerald-400 transition-colors">
+                                {b.showtime.movie.title}
+                              </h3>
+                              <div className="flex items-center gap-2 mt-2 text-neutral-400">
+                                <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                                <span className="text-xs font-bold uppercase tracking-widest">{b.showtime.screen.theater.name}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest">Ticket ID</p>
+                              <p className="text-sm font-bold text-white">#TKN-{b.id.toString().padStart(6, '0')}</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mt-10">
+                            <InfoItem icon={<Calendar />} label="Date" value={formatDate(b.showtime.startTime)} />
+                            <InfoItem icon={<Clock />} label="Showtime" value={formatTime(b.showtime.startTime)} />
+                            <div className="col-span-2 md:col-span-1">
+                              <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest mb-1.5">Screen & Seats</p>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-white">{b.showtime.screen.name}</span>
+                                <div className="flex gap-1.5">
+                                  {b.tickets.slice(0, 3).map((t, idx) => (
+                                    <span key={idx} className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-bold text-emerald-400">
+                                      {t.seat.row}{t.seat.number}
+                                    </span>
+                                  ))}
+                                  {b.tickets.length > 3 && (
+                                    <span className="text-[10px] font-bold text-neutral-600">+{b.tickets.length - 3}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-dashed border-white/10 pt-8 mt-2 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest">Total Paid</p>
+                            <p className="text-3xl font-black text-white italic">
+                              <span className="text-emerald-500 mr-1 italic">₹</span>{b.totalAmount}
+                            </p>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <ActionIconButton
+                              onClick={() => downloadTicket(b.id)}
+                              icon={<Download className="w-5 h-5" />}
+                              label="Download"
+                            />
+                            <ActionIconButton
+                              onClick={() => shareTicket(b)}
+                              icon={<Share2 className="w-5 h-5" />}
+                              label="Share"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
+        </div>
+      </div>
       <SiteFooter />
-      <BottomNav />
     </div>
   );
 };
 
-const Info = ({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) => (
-  <div className="flex items-center gap-3">
-    <div className="w-9 h-9 bg-neutral-800 rounded-lg flex items-center justify-center text-amber-400">
-      {icon}
-    </div>
-    <div>
-      <p className="text-[10px] text-neutral-500 uppercase">{label}</p>
-      <p className="text-sm font-semibold">{value}</p>
+const InfoItem = ({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) => (
+  <div>
+    <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest mb-1.5">{label}</p>
+    <div className="flex items-center gap-2">
+      <div className="text-emerald-500">{React.cloneElement(icon as React.ReactElement<any>, { size: 14, strokeWidth: 3 })}</div>
+      <span className="text-sm font-bold text-white">{value}</span>
     </div>
   </div>
 );
 
-const ActionBtn = ({
-  icon,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  onClick: () => void;
-}) => (
+const ActionIconButton = ({ icon, onClick, label }: { icon: React.ReactNode, onClick: () => void, label: string }) => (
   <button
     onClick={onClick}
-    className="w-10 h-10 rounded-full bg-neutral-800 hover:bg-neutral-700 flex items-center justify-center transition"
+    className="group/btn flex flex-col items-center gap-2"
   >
-    {icon}
+    <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center text-neutral-400 hover:text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all duration-300 shadow-xl shadow-transparent hover:shadow-emerald-500/10">
+      {icon}
+    </div>
+    <span className="text-[8px] font-black uppercase tracking-widest text-neutral-600 group-hover/btn:text-emerald-500 transition-colors">{label}</span>
   </button>
 );
 

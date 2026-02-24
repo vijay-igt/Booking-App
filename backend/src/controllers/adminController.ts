@@ -15,6 +15,39 @@ import { Op } from 'sequelize';
 import { sequelize } from '../config/database';
 import { Transaction } from '../models/Transaction';
 
+const internalGenerateSeats = async (screenId: number, layout: any) => {
+    const { tiers, columns } = layout;
+    const seatsData = [];
+
+    if (tiers && Array.isArray(tiers) && tiers.length > 0) {
+        let currentRowIndex = 0;
+        const cols = columns || 10;
+
+        for (const tier of tiers) {
+            for (let i = 0; i < tier.rows; i++) {
+                const rowLabel = String.fromCharCode(65 + currentRowIndex); // A, B, C...
+                for (let c = 1; c <= cols; c++) {
+                    seatsData.push({
+                        screenId,
+                        row: rowLabel,
+                        number: c,
+                        type: tier.name,
+                        price: tier.price
+                    });
+                }
+                currentRowIndex++;
+            }
+        }
+    }
+
+    if (seatsData.length > 0) {
+        // Clear existing seats for this screen before generating new ones
+        await Seat.destroy({ where: { screenId } });
+        await Seat.bulkCreate(seatsData);
+    }
+    return seatsData.length;
+};
+
 export const createTheater = async (req: Request, res: Response): Promise<void> => {
     try {
         const { name, location } = req.body;
@@ -74,7 +107,7 @@ export const deleteTheater = async (req: Request, res: Response): Promise<void> 
 
 export const createScreen = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { theaterId, name } = req.body;
+        const { theaterId, name, seatLayout } = req.body;
 
         const existingScreen = await Screen.findOne({ where: { theaterId, name } });
         if (existingScreen) {
@@ -83,6 +116,12 @@ export const createScreen = async (req: Request, res: Response): Promise<void> =
         }
 
         const screen = await Screen.create({ theaterId, name });
+
+        // Auto-generate seats if layout provided
+        if (seatLayout) {
+            await internalGenerateSeats(screen.id, seatLayout);
+        }
+
         res.status(201).json(screen);
     } catch (error) {
         res.status(500).json({ message: 'Error creating screen', error });
@@ -140,54 +179,13 @@ export const deleteScreen = async (req: Request, res: Response): Promise<void> =
 export const generateSeats = async (req: Request, res: Response): Promise<void> => {
     try {
         const { screenId } = req.params;
-        const { tiers, columns, rowCount = 10, colCount = 10, type = 'Regular', price = 10.00 } = req.body;
+        const { tiers, columns } = req.body;
 
         const screen = await Screen.findByPk(parseInt(String(screenId)));
         if (!screen) { res.status(404).json({ message: 'Screen not found' }); return; }
 
-        const seatsData = [];
-
-        // Handle Tiers if provided (New Logic)
-        if (tiers && Array.isArray(tiers) && tiers.length > 0) {
-            let currentRowIndex = 0;
-            const cols = columns || 10;
-
-            for (const tier of tiers) {
-                for (let i = 0; i < tier.rows; i++) {
-                    const rowLabel = String.fromCharCode(65 + currentRowIndex); // A, B, C...
-                    for (let c = 1; c <= cols; c++) {
-                        seatsData.push({
-                            screenId: parseInt(String(screenId)),
-                            row: rowLabel,
-                            number: c,
-                            type: tier.name,
-                            price: tier.price
-                        });
-                    }
-                    currentRowIndex++;
-                }
-            }
-        } else {
-            // Fallback to old logic
-            for (let r = 0; r < rowCount; r++) {
-                const rowLabel = String.fromCharCode(65 + r); // A, B, C...
-                for (let c = 1; c <= colCount; c++) {
-                    seatsData.push({
-                        screenId: parseInt(String(screenId)),
-                        row: rowLabel,
-                        number: c,
-                        type: type,
-                        price: price
-                    });
-                }
-            }
-        }
-
-        // Clear existing seats for this screen before generating new ones
-        await Seat.destroy({ where: { screenId } });
-
-        await Seat.bulkCreate(seatsData);
-        res.status(201).json({ message: `Generated ${seatsData.length} seats.` });
+        const count = await internalGenerateSeats(screen.id, { tiers, columns });
+        res.status(201).json({ message: `Generated ${count} seats.` });
     } catch (error) {
         res.status(500).json({ message: 'Error generating seats', error });
     }
@@ -196,12 +194,15 @@ export const generateSeats = async (req: Request, res: Response): Promise<void> 
 export const getScreenTiers = async (req: Request, res: Response): Promise<void> => {
     try {
         const { screenId } = req.params;
-        const seats = await Seat.findAll({
+        const tiers = await Seat.findAll({
             where: { screenId },
-            attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('type')), 'tierName']],
+            attributes: [
+                [Sequelize.fn('DISTINCT', Sequelize.col('type')), 'name'],
+                [Sequelize.col('price'), 'price']
+            ],
+            group: ['type', 'price'],
             raw: true
         });
-        const tiers = seats.map((s: any) => s.tierName).filter(Boolean);
         res.json(tiers);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching tiers', error });
@@ -501,7 +502,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
 
         if (user.role === 'super_admin') {
             const platformWallet = await Wallet.findOne({ where: { type: 'platform' } });
-            const totalRevenue = platformWallet ? platformWallet.balance : 0;
+            const totalRevenue = platformWallet ? Number(platformWallet.balance) : 0;
             const totalOwners = await User.count({ where: { role: 'admin' } });
             const pendingApprovals = await User.count({ where: { adminRequestStatus: 'PENDING' } });
 
@@ -528,7 +529,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
             });
 
             const ownerWallet = await Wallet.findOne({ where: { userId: user.id, type: 'owner' } });
-            const totalEarnings = ownerWallet ? ownerWallet.balance : 0;
+            const totalEarnings = ownerWallet ? Number(ownerWallet.balance) : 0;
 
             const result = await Booking.findOne({
                 attributes: [
@@ -560,7 +561,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
 
             const bookingsSum = (result as any)?.totalAmount || 0;
             const totalRevenue = Number(bookingsSum) || 0;
-            const commissionPaid = totalRevenue * (Number(user.commissionRate) || 10) / 100;
+            const commissionPaid = Math.max(totalRevenue - totalEarnings, 0);
 
             stats = {
                 totalBookings,

@@ -1,6 +1,6 @@
 import redis from '../config/redis';
 
-const LOCK_TTL_SECONDS = 300; // 5 minutes
+const LOCK_TTL_SECONDS = 310; // 5 minutes + 10s buffer
 
 const ACQUIRE_LOCKS_LUA = `
 local userId = ARGV[1]

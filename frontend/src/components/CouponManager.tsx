@@ -146,13 +146,26 @@ const CouponManager: React.FC<Props> = ({ compact = false }) => {
     const discountLabel = (c: Coupon) =>
         c.discountType === 'PERCENT' ? `${c.discountValue}% off` : `₹${c.discountValue} off`;
 
-    // ─── Render ────────────────────────────────────────────────────────────────
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const isExpired = (c: Coupon) =>
+        !!c.expiresAt && c.expiresAt < todayStr;
+
+    const isEffectivelyActive = (c: Coupon) =>
+        c.isActive &&
+        (!c.validFrom || c.validFrom <= todayStr) &&
+        !isExpired(c);
 
     const sortedCoupons = [...coupons].sort((a, b) => {
-        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+        const aActive = isEffectivelyActive(a);
+        const bActive = isEffectivelyActive(b);
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        const aExpired = isExpired(a);
+        const bExpired = isExpired(b);
+        if (aExpired !== bExpired) return aExpired ? 1 : -1;
         return b.id - a.id;
     });
-    const activeCount = coupons.filter(c => c.isActive).length;
+    const activeCount = coupons.filter(c => isEffectivelyActive(c)).length;
     const inactiveCount = coupons.length - activeCount;
 
     return (
@@ -195,11 +208,15 @@ const CouponManager: React.FC<Props> = ({ compact = false }) => {
                 <div className="text-center py-10 text-neutral-500 text-sm">No coupons yet. Create one to get started.</div>
             ) : (
                 <div className="space-y-2">
-                    {sortedCoupons.map(coupon => (
+                    {sortedCoupons.map(coupon => {
+                        const expired = isExpired(coupon);
+                        const effectivelyActive = isEffectivelyActive(coupon);
+
+                        return (
                         <motion.div
                             key={coupon.id}
                             layout
-                            className={`flex items-center justify-between p-4 rounded-2xl border transition-colors ${coupon.isActive
+                            className={`flex items-center justify-between p-4 rounded-2xl border transition-colors ${effectivelyActive
                                 ? 'bg-gradient-to-r from-neutral-900 to-neutral-900/70 border-neutral-800'
                                 : 'bg-neutral-900/40 border-neutral-800/40 opacity-60'
                                 }`}
@@ -213,14 +230,18 @@ const CouponManager: React.FC<Props> = ({ compact = false }) => {
                                     <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
                                         {discountLabel(coupon)}
                                     </span>
-                                    {coupon.maxUses && (
+                                        {coupon.maxUses && (
                                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-neutral-800/70 text-neutral-400">
                                             {coupon.usedCount}/{coupon.maxUses} used
                                         </span>
                                     )}
-                                    {coupon.isActive ? (
+                                    {effectivelyActive ? (
                                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300">
                                             Active
+                                        </span>
+                                    ) : isExpired(coupon) ? (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/30">
+                                            Expired
                                         </span>
                                     ) : (
                                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-500">
@@ -241,8 +262,12 @@ const CouponManager: React.FC<Props> = ({ compact = false }) => {
                                 </p>
                             </div>
                             <div className="flex items-center gap-2 ml-3 shrink-0">
-                                <button onClick={() => handleToggle(coupon)} className="text-neutral-400 hover:text-white transition-colors">
-                                    {coupon.isActive
+                                <button
+                                    onClick={() => !expired && handleToggle(coupon)}
+                                    disabled={expired}
+                                    className="text-neutral-400 hover:text-white transition-colors disabled:text-neutral-600 disabled:hover:text-neutral-600"
+                                >
+                                    {effectivelyActive
                                         ? <ToggleRight className="w-5 h-5 text-amber-500" />
                                         : <ToggleLeft className="w-5 h-5" />
                                     }
@@ -255,7 +280,8 @@ const CouponManager: React.FC<Props> = ({ compact = false }) => {
                                 </button>
                             </div>
                         </motion.div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 

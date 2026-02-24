@@ -26,6 +26,25 @@ export const getUserNotifications = async (req: Request, res: Response) => {
     }
 };
 
+export const getUnreadCount = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+
+        const count = await Notification.count({
+            where: { userId, isRead: false }
+        });
+
+        res.json({ count });
+    } catch (error) {
+        console.error('Error fetching unread count:', error);
+        res.status(500).json({ message: 'Error fetching unread count' });
+    }
+};
+
 export const markAsRead = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;

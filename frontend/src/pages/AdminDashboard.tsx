@@ -1,292 +1,319 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import { AxiosError } from 'axios';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    LayoutDashboard,
-    Film,
-    Calendar,
-    Plus,
-    MapPin,
-    Clock,
-    LogOut,
-    Ticket as TicketIcon,
-    ChevronLeft,
-    TrendingUp,
-    Edit2,
-    Trash2,
-    Monitor,
-    X,
-    Star,
-    Users,
-    Bell,
-    Wallet
+    LayoutDashboard, Film, Calendar, Plus, MapPin,
+    Trash2, Monitor, X, Star, Users, Bell,
+    Wallet, Menu, Search, Edit2, MessageSquare,
+    LogOut, Ticket, Headset, Send
 } from 'lucide-react';
+import { format } from 'date-fns';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { useWebSocket } from '../context/WebSocketContextDefinition';
 import { onMessageListener } from '../config/firebase';
-import type { Movie, Theater, Showtime, Booking, User, WalletRequest, Seat, SeatTierConfig, DashboardStats } from '../types';
-import { AxiosError } from 'axios';
+import type {
+    Movie, Theater, Showtime, Booking, User, WalletRequest,
+    DashboardStats
+} from '../types';
 import PricingRuleManager from '../components/PricingRuleManager';
 import CouponManager from '../components/CouponManager';
-import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
+import { cn } from '../lib/utils';
+import { useWebSocket } from '../context/WebSocketContextDefinition';
 
-// Types are imported from '../types'
+type SupportTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+
+interface AdminTicketReply {
+    id: number;
+    message: string;
+    sender: {
+        id: number;
+        name: string;
+        role: string;
+    };
+    createdAt: string;
+}
+
+interface AdminTicket {
+    id: number;
+    subject: string;
+    message: string;
+    status: SupportTicketStatus;
+    priority: 'LOW' | 'MEDIUM' | 'HIGH';
+    category: string;
+    createdAt: string;
+    updatedAt: string;
+    user?: {
+        id: number;
+        name: string;
+        email: string;
+    };
+    replies?: AdminTicketReply[];
+}
+
+interface EditingScreen {
+    id: number;
+    name: string;
+}
+
+interface ScreenTierSummary {
+    name: string;
+    price: number;
+}
 
 const AdminDashboard: React.FC = () => {
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet' | 'pricing' | 'coupons'>('theaters');
-    const [walletRequests, setWalletRequests] = useState<WalletRequest[]>([]);
-    const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
+    // ─── State ────────────────────────────────────────────────────────────────
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet' | 'pricing' | 'coupons' | 'support'>('theaters');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
+
+    // Data Lists
     const [theaters, setTheaters] = useState<Theater[]>([]);
     const [movies, setMovies] = useState<Movie[]>([]);
     const [showtimes, setShowtimes] = useState<Showtime[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [users, setUsers] = useState<User[]>([]);
-    const [userPage, setUserPage] = useState(1);
-    const [userTotalPages, setUserTotalPages] = useState(1);
-    const [userSearch, setUserSearch] = useState('');
-    const [userRoleFilter, setUserRoleFilter] = useState('all');
-    const [isUsersLoading, setIsUsersLoading] = useState(false);
-    const [usersWithWallets, setUsersWithWallets] = useState<User[]>([]);
-    const auth = useAuth();
-    const navigate = useNavigate();
+    const [walletRequests, setWalletRequests] = useState<WalletRequest[]>([]);
+    const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
+    const [adminTickets, setAdminTickets] = useState<AdminTicket[]>([]);
+    const [selectedAdminTicket, setSelectedAdminTicket] = useState<AdminTicket | null>(null);
+    const [adminReplyMessage, setAdminReplyMessage] = useState('');
     const { subscribe } = useWebSocket();
 
+    // Modals
+    const [showTheaterModal, setShowTheaterModal] = useState(false);
+    const [showScreenModal, setShowScreenModal] = useState(false);
+    const [showMovieModal, setShowMovieModal] = useState(false);
+    const [showShowtimeModal, setShowShowtimeModal] = useState(false);
+
+    // Forms & Inputs
     const [newTheater, setNewTheater] = useState({ name: '', location: '' });
+    const [selectedTheaterId, setSelectedTheaterId] = useState<number | null>(null);
+    const [newScreenName, setNewScreenName] = useState('');
+
+    // Seat Tiers (State)
+    const [seatTiers, setSeatTiers] = useState([
+        { name: 'Classic', rows: 5, price: 150 },
+        { name: 'Recliner', rows: 2, price: 250 },
+        { name: 'Premium', rows: 3, price: 400 }
+    ]);
+
     const [newMovie, setNewMovie] = useState<Partial<Movie>>({
-        title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D'
+        title: '', description: '', genre: '', duration: 120, rating: '',
+        posterUrl: '', bannerUrl: '', trailerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D'
     });
-    const [newShowtime, setNewShowtime] = useState({ movieId: 0, screenId: 0, startTime: '', endTime: '', tierPrices: {} as Record<string, number>, occupancyThreshold: 70 });
+    const [editingMovie, setEditingMovie] = useState<Movie | null>(null);
+
+    const [newShowtime, setNewShowtime] = useState({
+        movieId: 0, screenId: 0, startTime: '', endTime: '',
+        tierPrices: {} as Record<string, number>, occupancyThreshold: 70
+    });
     const [newShowtimeDate, setNewShowtimeDate] = useState('');
     const [newShowtimeTime, setNewShowtimeTime] = useState('');
-    const [selectedScreenTiers, setSelectedScreenTiers] = useState<string[]>([]);
-    const [newScreenName, setNewScreenName] = useState('');
-    const [selectedTheaterId, setSelectedTheaterId] = useState<number | null>(null);
-    const [editingMovie, setEditingMovie] = useState<Movie | null>(null);
-    const [editingScreen, setEditingScreen] = useState<{ id: number, name: string } | null>(null);
-    const [genScreenId, setGenScreenId] = useState<number | null>(null);
-    const [seatTiers, setSeatTiers] = useState<{ name: string; rows: number; price: number }[]>([
-        { name: 'Classic', rows: 5, price: 150 }
-    ]);
-    const [seatCols, setSeatCols] = useState(10);
 
+    // User Management
+    const [userSearch, setUserSearch] = useState('');
+    const [editingCommissionUser, setEditingCommissionUser] = useState<User | null>(null);
+    const [newCommissionRate, setNewCommissionRate] = useState<number>(0);
+
+    // Notification State
     const [notifUserId, setNotifUserId] = useState<number | null>(null);
-    const [notifForm, setNotifForm] = useState({ title: '', message: '', type: 'info', audience: 'users' });
+    const [notifForm, setNotifForm] = useState({ title: '', message: '', type: 'info' as 'info' | 'warning' | 'success' | 'error', audience: 'users' });
     const [isSendingNotif, setIsSendingNotif] = useState(false);
 
-    // Request Movie State
+    // Screen Editing & Generation
+    const [editingScreen, setEditingScreen] = useState<EditingScreen | null>(null);
+    const [genScreenId, setGenScreenId] = useState<number | null>(null);
+    const [seatCols, setSeatCols] = useState(10);
+
+    // Request Movie
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMovieName, setRequestMovieName] = useState('');
     const [requestNotes, setRequestNotes] = useState('');
 
-    // Commission Management State
-    const [editingCommissionUser, setEditingCommissionUser] = useState<User | null>(null);
-    const [newCommissionRate, setNewCommissionRate] = useState<number>(0);
-    const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+    const [selectedScreenTiers, setSelectedScreenTiers] = useState<ScreenTierSummary[]>([]);
 
-    const fetchDashboardStats = useCallback(async () => {
+    // ─── Effects ──────────────────────────────────────────────────────────────
+    useEffect(() => {
+        if (currentTab === 'theaters') fetchTheaters();
+        if (currentTab === 'movies') fetchMovies();
+        if (currentTab === 'showtimes') { fetchShowtimes(); fetchMovies(); fetchTheaters(); }
+        if (currentTab === 'bookings') fetchBookings();
+        if (currentTab === 'users') fetchUsers();
+        if (currentTab === 'wallet') fetchWalletRequests();
+        if (currentTab === 'support') fetchAdminTickets();
+        fetchDashboardStats();
+    }, [currentTab, userSearch]);
+
+    // WebSocket Subscriptions
+    useEffect(() => {
+        const unsubscribe = subscribe('SUPPORT_TICKET_REPLY', (payload) => {
+            fetchAdminTickets();
+
+            if (selectedAdminTicket && (payload as { ticketId?: number }).ticketId === selectedAdminTicket.id) {
+                api.get(`/support/tickets/${selectedAdminTicket.id}`).then(res => {
+                    setSelectedAdminTicket(res.data);
+                });
+            }
+        });
+
+        return () => unsubscribe();
+    }, [selectedAdminTicket, subscribe]);
+
+    const handleWalletAction = async (id: number, action: 'approve' | 'reject') => {
         try {
-            const response = await api.get('/admin/stats');
-            setDashboardStats(response.data);
-        } catch (error: unknown) { console.error(error) }
-    }, []);
+            await api.post(`/wallet/admin/${action}/${id}`);
+            fetchWalletRequests();
+        } catch (error: unknown) {
+            console.error(error);
+            alert(`Failed to ${action} request`);
+        }
+    };
 
     useEffect(() => {
         const unsubscribe = onMessageListener((payload) => {
-            console.log('[AdminDashboard] Foreground notification received:', payload);
+            console.log('Firebase Foreground Notification:', payload);
         });
-        return () => unsubscribe();
-    }, []);
 
-    const fetchBookings = useCallback(async () => {
-        try {
-            const response = await api.get('/admin/bookings');
-            setBookings(response.data);
-        } catch (error: unknown) { console.error(error); }
-    }, []);
-
-    const fetchTheaters = useCallback(async () => {
-        try {
-            const response = await api.get('/admin/theaters');
-            setTheaters(response.data);
-        } catch (error: unknown) { console.error(error); }
-    }, []);
-
-    const fetchMovies = useCallback(async () => {
-        try {
-            // Fetch all movies so admins can schedule showtimes for any movie
-            const response = await api.get(`/movies`);
-            setMovies(response.data);
-        } catch (error: unknown) { console.error(error); }
-    }, []);
-
-    const fetchShowtimes = useCallback(async () => {
-        try {
-            const response = await api.get('/admin/showtimes');
-            setShowtimes(response.data);
-        } catch (error: unknown) { console.error(error); }
-    }, []);
-
-    const fetchWalletRequests = useCallback(async () => {
-        try {
-            const response = await api.get('/wallet/admin/requests');
-            setWalletRequests(response.data);
-            setPendingRequestsCount(response.data.length);
-        } catch (error: unknown) { console.error(error); }
-    }, []);
-
-    const handleApproveRequest = async (requestId: number) => {
-        try {
-            await api.post(`/wallet/admin/approve/${requestId}`);
-            fetchWalletRequests();
-            fetchUsersWithWallets(); // Refresh users with wallets after approval
-        } catch (error: unknown) { console.error(error) }
-    };
-
-    const handleRejectRequest = async (requestId: number) => {
-        try {
-            await api.post(`/wallet/admin/reject/${requestId}`);
-            fetchWalletRequests();
-        } catch (error: unknown) { console.error(error) }
-    };
-
-    const fetchUsers = useCallback(async () => {
-        setIsUsersLoading(true);
-        try {
-            const response = await api.get('/admin/users', {
-                params: {
-                    page: userPage,
-                    limit: 10,
-                    search: userSearch,
-                    role: userRoleFilter
-                }
-            });
-            // Handle both old array format (fallback) and new paginated format
-            if (Array.isArray(response.data)) {
-                setUsers(response.data);
-            } else {
-                setUsers(response.data.users);
-                setUserTotalPages(response.data.totalPages);
-            }
-        } catch (error: unknown) { console.error(error) }
-        finally { setIsUsersLoading(false); }
-    }, [userPage, userSearch, userRoleFilter]);
-
-    const fetchUsersWithWallets = useCallback(async () => {
-        try {
-            const response = await api.get('/wallet/admin/users');
-            setUsersWithWallets(response.data);
-        } catch (error: unknown) { console.error(error) }
-    }, []);
-
-    useEffect(() => {
-        fetchTheaters();
-        fetchMovies();
-        fetchShowtimes();
-        fetchBookings();
-        fetchDashboardStats();
-
-        if (auth.user?.role === 'super_admin') {
-            fetchUsers();
-            fetchWalletRequests();
-            fetchUsersWithWallets(); // Fetch users with wallets on initial load
-        }
-
-        if (auth.user?.role === 'super_admin') {
-            // Rely on WebSockets for real-time updates instead of polling
-            const unsubscribe = subscribe('ADMIN_TOPUP_REQUEST', () => {
-                console.log('[AdminDashboard] New top-up request received via WebSocket, refreshing...');
-                fetchWalletRequests();
-            });
-
-            return () => unsubscribe();
-        }
-    }, [fetchTheaters, fetchMovies, fetchShowtimes, fetchBookings, fetchUsers, fetchWalletRequests, fetchUsersWithWallets, fetchDashboardStats, auth.user?.role, subscribe]);
-
-    useEffect(() => {
-        if (currentTab === 'wallet') {
-            fetchUsersWithWallets();
-        }
-    }, [currentTab, fetchUsersWithWallets]);
-
-    useEffect(() => {
-        if (!genScreenId) return; // Don't fetch if modal is closed
-
-        // Reset to defaults first
-        setSeatTiers([{ name: 'Classic', rows: 5, price: 150 }]);
-        setSeatCols(10);
-
-        const fetchLayout = async () => {
-            try {
-                const response = await api.get(`/admin/seats/${genScreenId}`);
-                const seats: Seat[] = response.data;
-
-                if (seats && seats.length > 0) {
-                    const maxCol = Math.max(...seats.map((s: Seat) => s.number));
-                    setSeatCols(maxCol);
-
-                    const uniqueRows = [...new Set(seats.map((s: Seat) => s.row))].sort();
-                    const rowConfig = new Map<string, { type: string; price: number }>();
-                    seats.forEach((s: Seat) => {
-                        if (!rowConfig.has(s.row)) {
-                            rowConfig.set(s.row, { type: s.type, price: s.price });
-                        }
-                    });
-
-                    const reconstructedTiers: SeatTierConfig[] = [];
-                    let currentType = '';
-                    let currentPrice = 0;
-                    let currentRowCount = 0;
-
-                    const getRowIdx = (r: string) => r.charCodeAt(0) - 65;
-                    uniqueRows.sort((a: string, b: string) => getRowIdx(a) - getRowIdx(b));
-
-                    uniqueRows.forEach((row: string) => {
-                        const config = rowConfig.get(row);
-                        if (config && (config.type !== currentType || config.price !== currentPrice)) {
-                            if (currentType) {
-                                reconstructedTiers.push({
-                                    name: currentType,
-                                    rows: currentRowCount,
-                                    price: currentPrice
-                                });
-                            }
-                            currentType = config.type;
-                            currentPrice = config.price;
-                            currentRowCount = 1;
-                        } else if (config) {
-                            currentRowCount++;
-                        }
-                    });
-
-                    if (currentType) {
-                        reconstructedTiers.push({
-                            name: currentType,
-                            rows: currentRowCount,
-                            price: currentPrice
-                        });
-                    }
-
-                    if (reconstructedTiers.length > 0) {
-                        setSeatTiers(reconstructedTiers);
-                    }
-                }
-            } catch (error: unknown) {
-                console.error("Failed to fetch layout", error);
-            }
+        return () => {
+            if (unsubscribe) unsubscribe();
         };
+    }, []);
 
-        fetchLayout();
-    }, [genScreenId]);
-
-    const handleCreateTheater = async () => {
-        if (!newTheater.name || !newTheater.location) return;
+    // ─── Data Fetching ────────────────────────────────────────────────────────
+    const fetchDashboardStats = async () => {
         try {
+            const res = await api.get('/admin/stats');
+            setDashboardStats(res.data);
+            if ('pendingApprovals' in res.data) {
+                setPendingRequestsCount(res.data.pendingApprovals);
+            }
+        } catch (error: unknown) {
+            console.error('Stats error', error);
+        }
+    };
+
+    const fetchTheaters = async () => {
+        try {
+            const res = await api.get('/admin/theaters');
+            setTheaters(res.data);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchMovies = async () => {
+        try {
+            const res = await api.get('/movies');
+            setMovies(res.data);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchShowtimes = async () => {
+        try {
+            const res = await api.get('/admin/showtimes');
+            setShowtimes(res.data);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchBookings = async () => {
+        try {
+            const res = await api.get('/admin/bookings');
+            setBookings(res.data);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchUsers = async () => {
+        try {
+            const res = await api.get(`/admin/users?search=${userSearch}`);
+            setUsers(res.data.users || res.data);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchWalletRequests = async () => {
+        try {
+            const res = await api.get('/wallet/admin/requests');
+            setWalletRequests(res.data);
+            setPendingRequestsCount(res.data.filter((r: WalletRequest) => r.status === 'PENDING').length);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchAdminTickets = async () => {
+        try {
+            const res = await api.get('/support/admin/tickets');
+            setAdminTickets(res.data);
+        } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const handleUpdateTicketStatus = async (ticketId: number, status: string) => {
+        try {
+            await api.patch(`/support/admin/tickets/${ticketId}/status`, { status });
+            fetchAdminTickets();
+            if (selectedAdminTicket?.id === ticketId) {
+                const res = await api.get(`/support/tickets/${ticketId}`);
+                setSelectedAdminTicket(res.data);
+            }
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to update ticket status');
+        }
+    };
+
+    const handleAdminAddReply = async (ticketId: number) => {
+        if (!adminReplyMessage.trim()) return;
+        try {
+            await api.post(`/support/tickets/${ticketId}/replies`, { message: adminReplyMessage });
+            setAdminReplyMessage('');
+            const res = await api.get(`/support/tickets/${ticketId}`);
+            setSelectedAdminTicket(res.data);
+            fetchAdminTickets();
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to send reply');
+        }
+    };
+
+    const handleDeleteTicket = async (ticketId: number) => {
+        if (!window.confirm('Delete this ticket permanently?')) return;
+        try {
+            await api.delete(`/support/admin/tickets/${ticketId}`);
+            setSelectedAdminTicket(null);
+            fetchAdminTickets();
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to delete ticket');
+        }
+    };
+
+    // ─── Handlers ─────────────────────────────────────────────────────────────
+
+    // Theater/Screen
+    const handleCreateTheater = async () => {
+        try {
+            if (!newTheater.name || !newTheater.location) return;
             await api.post('/admin/theaters', newTheater);
-            setNewTheater({ name: '', location: '' });
             fetchTheaters();
+            setShowTheaterModal(false);
+            setNewTheater({ name: '', location: '' });
             alert('Theater created successfully! Please remember to add screens and configure seat layouts for this new location.');
-        } catch (error: unknown) { console.error(error) }
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to create theater');
+        }
     };
 
     const handleDeleteTheater = async (id: number) => {
@@ -298,13 +325,28 @@ const AdminDashboard: React.FC = () => {
     };
 
     const handleAddScreen = async (theaterId: number) => {
-        if (!newScreenName) return;
         try {
-            await api.post(`/admin/screens`, { theaterId, name: newScreenName });
-            setNewScreenName('');
-            setSelectedTheaterId(null);
+            await api.post(`/admin/screens`, {
+                theaterId,
+                name: newScreenName,
+                seatLayout: {
+                    columns: seatCols,
+                    tiers: seatTiers
+                }
+            });
             fetchTheaters();
-        } catch (error: unknown) { console.error(error) }
+            setShowScreenModal(false);
+            setNewScreenName('');
+            setSeatTiers([
+                { name: 'Classic', rows: 5, price: 150 },
+                { name: 'Recliner', rows: 3, price: 250 },
+                { name: 'Premium', rows: 2, price: 400 }                
+            ]);
+            setSeatCols(10);
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to add screen');
+        }
     };
 
     const handleUpdateScreen = async () => {
@@ -358,31 +400,32 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
-    const handleCreateMovie = async () => {
+    const handleSaveMovie = async () => {
         try {
-            await api.post('/admin/movies', newMovie);
-            setNewMovie({ title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D' });
-            fetchMovies();
-        } catch (error: unknown) { console.error(error) }
-    };
-
-    const handleUpdateMovie = async () => {
-        if (!editingMovie) return;
-        try {
-            await api.put(`/admin/movies/${editingMovie.id}`, editingMovie);
+            if (editingMovie) {
+                await api.put(`/admin/movies/${editingMovie.id}`, newMovie);
+            } else {
+                await api.post('/admin/movies', newMovie);
+            }
+            setNewMovie({ title: '', description: '', genre: '', duration: 120, rating: '', posterUrl: '', bannerUrl: '', trailerUrl: '', releaseDate: '', language: '', audio: '', format: 'IMAX 2D' });
             setEditingMovie(null);
+            setShowMovieModal(false);
             fetchMovies();
-        } catch (error: unknown) { console.error(error) }
+        } catch (error: unknown) { console.error(error); alert('Failed to save movie'); }
     };
 
     const handleDeleteMovie = async (id: number) => {
-        if (!window.confirm('Delete this movie?')) return;
+        if (!window.confirm("Are you sure?")) return;
         try {
-            await api.delete(`/admin/movies/${id}`);
+            await api.delete(`/movies/${id}`);
             fetchMovies();
-        } catch (error: unknown) { console.error(error) }
+        } catch (error: unknown) {
+            console.error(error);
+            alert('Failed to delete');
+        }
     };
 
+    // Showtime
     const handleCreateShowtime = async () => {
         if (!newShowtime.movieId || !newShowtime.screenId || !newShowtimeDate || !newShowtimeTime || !newShowtime.tierPrices) {
             alert('Please fill all fields to schedule a showtime.');
@@ -406,6 +449,7 @@ const AdminDashboard: React.FC = () => {
             setNewShowtimeTime('');
             setSelectedScreenTiers([]);
             fetchShowtimes();
+            setShowShowtimeModal(false);
         } catch (error: unknown) {
             console.error(error);
             if (error instanceof AxiosError && error.response && error.response.data && error.response.data.message) {
@@ -456,8 +500,21 @@ const AdminDashboard: React.FC = () => {
     const handleScreenSelect = async (screenId: number) => {
         try {
             const response = await api.get(`/admin/screens/${screenId}/tiers`);
-            setSelectedScreenTiers(response.data);
-            setNewShowtime({ ...newShowtime, screenId, tierPrices: {}, occupancyThreshold: 70 });
+            const tiers: ScreenTierSummary[] = response.data;
+            setSelectedScreenTiers(tiers);
+
+            // Pre-populate tierPrices with default prices
+            const initialPrices: Record<string, number> = {};
+            tiers.forEach((t) => {
+                initialPrices[t.name] = t.price;
+            });
+
+            setNewShowtime({
+                ...newShowtime,
+                screenId,
+                tierPrices: initialPrices,
+                occupancyThreshold: 70
+            });
         } catch (error: unknown) {
             console.error(error);
             setSelectedScreenTiers([]);
@@ -491,7 +548,7 @@ const AdminDashboard: React.FC = () => {
     };
 
     const handleLogout = () => {
-        auth.logout();
+        logout();
         navigate('/login');
     };
 
@@ -522,1388 +579,1138 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    // ─── UI Helpers ───────────────────────────────────────────────────────────
     const tabs = [
         { id: 'theaters' as const, label: 'Theaters', icon: LayoutDashboard },
         { id: 'movies' as const, label: 'Movies', icon: Film },
-        ...(auth.user?.role !== 'super_admin' ? [{ id: 'showtimes' as const, label: 'Showtimes', icon: Calendar }] : []),
-        { id: 'bookings' as const, label: 'Bookings', icon: TicketIcon },
-        ...(auth.user?.role === 'super_admin' ? [{ id: 'users' as const, label: 'Users', icon: Users }] : []),
-        ...(auth.user?.role === 'super_admin' ? [{ id: 'wallet' as const, label: 'Wallet', icon: Wallet }] : []),
-        ...(auth.user?.role === 'super_admin' ? [{ id: 'pricing' as const, label: 'Pricing Rules', icon: Star }] : []),
+        ...(user?.role !== 'super_admin' ? [{ id: 'showtimes' as const, label: 'Showtimes', icon: Calendar }] : []),
+        { id: 'bookings' as const, label: 'Bookings', icon: Ticket },
+        ...(user?.role === 'super_admin' ? [{ id: 'users' as const, label: 'Users', icon: Users }] : []),
+        ...(user?.role === 'super_admin' ? [{ id: 'wallet' as const, label: 'Wallet', icon: Wallet }] : []),
+        ...(user?.role === 'super_admin' ? [{ id: 'pricing' as const, label: 'Pricing Rules', icon: Star }] : []),
         { id: 'coupons' as const, label: 'Coupons', icon: Bell },
+        { id: 'support' as const, label: 'Support', icon: Headset },
     ];
 
     return (
-        <div className="min-h-screen bg-neutral-950 text-white pb-8">
-            {/* Header */}
-            <div className="sticky top-0 z-40 bg-neutral-950/80 backdrop-blur-xl border-b border-white/5">
-                <div className="max-w-7xl mx-auto px-5 py-5">
-                    <div className="flex items-center justify-between mb-8">
-                        <div className="flex items-center gap-4">
-                            <motion.button
-                                whileHover={{ scale: 1.05, x: -2 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => navigate('/')}
-                                className="w-12 h-12 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-center text-neutral-400 hover:text-white hover:border-white/10 transition-colors"
-                            >
-                                <ChevronLeft className="w-6 h-6" />
-                            </motion.button>
-                            <div>
-                                <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                                    <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider">System Management</p>
-                                </div>
-                            </div>
+        <div className="min-h-screen bg-neutral-950 text-white flex font-sans selection:bg-emerald-500/30">
+            {/* ─── Sidebar ──────────────────────────────────────────────────────── */}
+            <motion.aside
+                initial={{ x: -250 }}
+                animate={{ x: isSidebarOpen ? 0 : -250 }}
+                className={cn(
+                    "fixed md:sticky top-0 left-0 z-40 h-screen w-64 bg-neutral-900/50 backdrop-blur-xl border-r border-white/5 flex flex-col transition-transform duration-300",
+                    !isSidebarOpen && "md:-ml-64"
+                )}
+            >
+                <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                            <Monitor className="w-4 h-4 text-white" />
                         </div>
-
-                        {auth.user?.role === 'super_admin' && dashboardStats && 'totalRevenue' in dashboardStats ? (
-                            <>
-                                <div className="text-right">
-                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Revenue</p>
-                                    <p className="text-xl font-bold text-amber-400">₹{Number(dashboardStats.totalRevenue).toFixed(2)}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Owners</p>
-                                    <p className="text-xl font-bold text-white">{dashboardStats.totalOwners}</p>
-                                </div>
-                            </>
-                        ) : (auth.user?.role !== 'super_admin' && dashboardStats && 'totalBookings' in dashboardStats) ? (
-                            <>
-                                <div className="text-right">
-                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Bookings</p>
-                                    <p className="text-xl font-bold text-white">{dashboardStats.totalBookings}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Total Earnings</p>
-                                    <p className="text-xl font-bold text-amber-400">₹{Number(dashboardStats.totalEarnings).toFixed(2)}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Commission Paid</p>
-                                    <p className="text-xl font-bold text-amber-400">₹{Number(dashboardStats.commissionPaid).toFixed(2)}</p>
-                                </div>
-                            </>
-                        ) : null}
-
-                        <div className="flex items-center gap-3">
-                            <div className="hidden sm:flex flex-col items-end mr-2">
-                                <p className="text-sm font-semibold">{auth.user?.name}</p>
-                                <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">Administrator</p>
-                            </div>
-                            {auth.user?.role === 'super_admin' && (
-                                <button
-                                    onClick={() => setCurrentTab('wallet')}
-                                    className="relative p-2 rounded-full bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
-                                >
-                                    <Bell className="w-5 h-5" />
-                                    {pendingRequestsCount > 0 && (
-                                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                                            {pendingRequestsCount}
-                                        </span>
-                                    )}
-                                </button>
-                            )}
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={handleLogout}
-                                className="w-12 h-12 rounded-2xl bg-red-500/5 border border-red-500/10 flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-colors"
-                            >
-                                <LogOut className="w-5 h-5" />
-                            </motion.button>
-                        </div>
-                    </div>
-
-                    {/* Tabs */}
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                        {tabs.map((tab) => {
-                            const Icon = tab.icon;
-                            const isActive = currentTab === tab.id;
-                            return (
-                                <motion.button
-                                    key={tab.id}
-                                    whileHover={{ y: -1 }}
-                                    whileTap={{ scale: 0.97 }}
-                                    onClick={() => setCurrentTab(tab.id)}
-                                    className={`relative flex items-center gap-2.5 px-6 py-3 rounded-2xl whitespace-nowrap transition-all duration-300 ${isActive
-                                        ? 'text-white'
-                                        : 'text-neutral-500 hover:text-neutral-300'
-                                        }`}
-                                >
-                                    {isActive && (
-                                        <motion.div
-                                            layoutId="activeTab"
-                                            className="absolute inset-0 bg-amber-500 rounded-2xl shadow-lg shadow-amber-500/20"
-                                            transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                                        />
-                                    )}
-                                    <Icon className={`relative z-10 w-4.5 h-4.5 ${isActive ? 'text-white' : ''}`} />
-                                    <span className="relative z-10 text-sm font-bold">{tab.label}</span>
-                                </motion.button>
-                            );
-                        })}
+                        <span className="font-bold text-lg tracking-tight">Neo<span className="text-emerald-500">Admin</span></span>
                     </div>
                 </div>
-            </div>
 
-            {/* Content */}
-            <div className="max-w-7xl mx-auto px-5 py-8">
-                <AnimatePresence mode="wait">
-                    {/* THEATERS TAB */}
-                    {currentTab === 'theaters' && (
-                        <motion.div
-                            key="theaters"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className="grid lg:grid-cols-[400px_1fr] gap-8"
-                        >
-                            {/* Create Theater Form - Only for Theater Owners */}
-                            {auth.user?.role !== 'super_admin' && (
-                                <div className="space-y-6">
-                                    <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44">
-                                        <div className="space-y-1">
-                                            <h3 className="text-xl font-bold flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                                                    <Plus className="w-4 h-4 text-amber-400" />
-                                                </div>
-                                                Add Theater
-                                            </h3>
-                                            <p className="text-sm text-neutral-500">Register a new cinema location</p>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Theater Name</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="e.g. Cineplex Downtown"
-                                                    value={newTheater.name}
-                                                    onChange={(e) => setNewTheater({ ...newTheater, name: e.target.value })}
-                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Location</label>
-                                                <div className="relative">
-                                                    <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-600" />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="City, Area"
-                                                        value={newTheater.location}
-                                                        onChange={(e) => setNewTheater({ ...newTheater, location: e.target.value })}
-                                                        className="w-full h-14 pl-12 pr-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all"
-                                                    />
-                                                </div>
-                                            </div>
-                                            <motion.button
-                                                whileHover={{ scale: 1.02 }}
-                                                whileTap={{ scale: 0.98 }}
-                                                onClick={handleCreateTheater}
-                                                className="w-full h-14 rounded-2xl bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors mt-2"
-                                            >
-                                                Create Theater
-                                            </motion.button>
-                                        </div>
-                                    </div>
-                                </div>
+                <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+                    {tabs.map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => { setCurrentTab(tab.id); if (window.innerWidth < 768) setIsSidebarOpen(false); }}
+                            className={cn(
+                                "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-sm font-medium",
+                                currentTab === tab.id
+                                    ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                                    : "text-neutral-400 hover:bg-white/5 hover:text-white"
                             )}
+                        >
+                            <tab.icon className={cn("w-5 h-5", currentTab === tab.id ? "text-emerald-500" : "text-neutral-500 group-hover:text-white")} />
+                            {tab.label}
+                            {tab.id === 'wallet' && pendingRequestsCount > 0 && (
+                                <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                    {pendingRequestsCount}
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </nav>
 
-                            {/* Theater List */}
-                            <div className="space-y-6">
-                                {theaters.length === 0 ? (
-                                    <div className="h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
-                                        <LayoutDashboard className="w-12 h-12 mb-3 opacity-20" />
-                                        <p className="font-medium">No theaters registered yet</p>
-                                    </div>
+                <div className="p-4 border-t border-white/5">
+                    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-neutral-800/50 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-neutral-950 font-bold uppercase">
+                            {user?.name?.charAt(0)}
+                        </div>
+                        <div className="overflow-hidden">
+                            <p className="text-sm font-bold text-white truncate">{user?.name}</p>
+                            <p className="text-[10px] text-neutral-500 uppercase tracking-wider truncate">{user?.role.replace('_', ' ')}</p>
+                        </div>
+                    </div>
+                </div>
+            </motion.aside>
+
+            {/* ─── Main Content ─────────────────────────────────────────────────── */}
+            <main className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden relative">
+                {/* Header */}
+                <header className="h-16 border-b border-white/5 bg-neutral-900/30 backdrop-blur-md flex items-center justify-between px-6 shrink-0">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded-lg hover:bg-white/5 text-neutral-400 hover:text-white transition-colors">
+                            <Menu className="w-5 h-5" />
+                        </button>
+                        <h2 className="text-xl font-bold text-white capitalize">{currentTab.replace('-', ' ')}</h2>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        {/* Conditional Bell Icon (only for super admin) */}
+                        {user?.role === 'super_admin' && (
+                            <button
+                                onClick={() => setCurrentTab('wallet')}
+                                className="relative p-2 rounded-full hover:bg-white/5 text-neutral-400 hover:text-white transition-colors"
+                            >
+                                <Bell className="w-5 h-5" />
+                                {pendingRequestsCount > 0 && (
+                                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 border border-neutral-900"></span>
+                                )}
+                            </button>
+                        )}
+                        <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-red-500/10 text-neutral-400 hover:text-red-500 transition-colors">
+                            <LogOut className="w-5 h-5" />
+                        </button>
+                    </div>
+                </header>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto p-6 scroll-smooth custom-scrollbar">
+                    <div className="max-w-7xl mx-auto space-y-8 pb-20">
+                        {/* Stats Cards */}
+                        {dashboardStats && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {'totalBookings' in dashboardStats ? (
+                                    // Owner Stats
+                                    <>
+                                        <div className="p-6 rounded-2xl bg-neutral-900 border border-white/5 relative overflow-hidden">
+                                            <p className="text-neutral-500 font-medium mb-1">Total Bookings</p>
+                                            <h3 className="text-3xl font-bold text-white">{dashboardStats.totalBookings || 0}</h3>
+                                        </div>
+                                        <div className="p-6 rounded-2xl bg-neutral-900 border border-white/5 relative overflow-hidden">
+                                            <p className="text-neutral-500 font-medium mb-1">Revenue</p>
+                                            <h3 className="text-3xl font-bold text-emerald-500">₹{Number(dashboardStats.totalEarnings || 0).toFixed(0)}</h3>
+                                        </div>
+                                        <div className="p-6 rounded-2xl bg-neutral-900 border border-white/5 relative overflow-hidden">
+                                            <p className="text-neutral-500 font-medium mb-1">Commissions Paid</p>
+                                            <h3 className="text-3xl font-bold text-amber-500">₹{Number(dashboardStats.commissionPaid || 0).toFixed(0)}</h3>
+                                        </div>
+                                    </>
                                 ) : (
-                                    theaters.map((theater) => (
-                                        <motion.div
-                                            key={theater.id}
-                                            layout
-                                            className="rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden group hover:border-amber-500/20 transition-colors"
-                                        >
-                                            <div className="p-6">
-                                                <div className="flex items-start justify-between mb-6">
-                                                    <div className="space-y-1">
-                                                        <h4 className="text-xl font-bold group-hover:text-amber-400 transition-colors">{theater.name}</h4>
-                                                        <div className="text-sm text-neutral-500 flex items-center gap-2">
-                                                            <div className="w-5 h-5 rounded-md bg-neutral-800 flex items-center justify-center">
-                                                                <MapPin className="w-3 h-3" />
-                                                            </div>
-                                                            {theater.location}
-                                                        </div>
-                                                        {auth.user?.role === 'super_admin' && theater.owner && (
-                                                            <div className="text-sm text-neutral-500 flex items-center gap-2 pt-1">
-                                                                <div className="w-5 h-5 rounded-md bg-neutral-800 flex items-center justify-center">
-                                                                    <Users className="w-3 h-3" />
-                                                                </div>
-                                                                <span className="text-neutral-400">Owner:</span>
-                                                                <span className="text-amber-400 font-medium">{theater.owner.name}</span>
-                                                                <span className="text-neutral-600 text-xs">({theater.owner.email})</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex gap-2">
-                                                        {auth.user?.role !== 'super_admin' && (
-                                                            <motion.button
-                                                                whileHover={{ scale: 1.1 }}
-                                                                whileTap={{ scale: 0.9 }}
-                                                                onClick={() => handleDeleteTheater(theater.id)}
-                                                                className="w-10 h-10 rounded-xl bg-red-500/5 border border-red-500/10 flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-colors"
-                                                            >
-                                                                <Trash2 className="w-4.5 h-4.5" />
-                                                            </motion.button>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Screens */}
-                                                <div className="space-y-3">
-                                                    <div className="flex items-center justify-between px-1">
-                                                        <h5 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Available Screens ({theater.screens?.length || 0})</h5>
-                                                    </div>
-
-                                                    <div className="grid sm:grid-cols-2 gap-3">
-                                                        {theater.screens?.map((screen) => (
-                                                            <motion.div
-                                                                key={screen.id}
-                                                                layout
-                                                                className="group/screen flex items-center justify-between p-4 rounded-2xl bg-neutral-800 border border-transparent hover:border-amber-500/30 hover:bg-neutral-800/80 transition-all"
-                                                            >
-                                                                {editingScreen?.id === screen.id ? (
-                                                                    <div className="flex flex-1 gap-2">
-                                                                        <input
-                                                                            type="text"
-                                                                            autoFocus
-                                                                            value={editingScreen.name}
-                                                                            onChange={(e) => setEditingScreen({ ...editingScreen, name: e.target.value })}
-                                                                            className="flex-1 h-9 px-3 rounded-xl bg-neutral-900 border border-white/10 text-xs focus:outline-none focus:border-amber-500/50"
-                                                                        />
-                                                                        <div className="flex gap-1">
-                                                                            <button onClick={handleUpdateScreen} className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center">
-                                                                                <Plus className="w-3.5 h-3.5 rotate-45" style={{ transform: 'rotate(0deg)' }} />
-                                                                                {/* Just using Plus as Placeholder for checkmark in lucide? No, I'll use text */}
-                                                                                <span className="text-[10px] font-bold">OK</span>
-                                                                            </button>
-                                                                            <button onClick={() => setEditingScreen(null)} className="w-8 h-8 rounded-lg bg-neutral-700 text-white flex items-center justify-center">
-                                                                                <X className="w-3.5 h-3.5" />
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <>
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-white/5 flex items-center justify-center group-hover/screen:border-amber-500/20 transition-colors">
-                                                                                <Monitor className="w-4 h-4 text-amber-400/60" />
-                                                                            </div>
-                                                                            <span className="text-sm font-bold">{screen.name}</span>
-                                                                        </div>
-                                                                        {auth.user?.role !== 'super_admin' && (
-                                                                            <div className="flex gap-1.5 opacity-0 group-hover/screen:opacity-100 transition-opacity">
-                                                                                <button
-                                                                                    onClick={() => setGenScreenId(screen.id)}
-                                                                                    className="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 text-[10px] font-bold tracking-tight hover:bg-amber-500/20 transition-colors"
-                                                                                >
-                                                                                    Layout
-                                                                                </button>
-                                                                                <button
-                                                                                    onClick={() => setEditingScreen({ id: screen.id, name: screen.name })}
-                                                                                    className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 flex items-center justify-center transition-colors"
-                                                                                >
-                                                                                    <Edit2 className="w-3.5 h-3.5 text-neutral-300" />
-                                                                                </button>
-                                                                                <button
-                                                                                    onClick={() => handleDeleteScreen(screen.id)}
-                                                                                    className="w-8 h-8 rounded-lg bg-red-400/5 hover:bg-red-400/10 flex items-center justify-center transition-colors"
-                                                                                >
-                                                                                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                                                                                </button>
-                                                                            </div>
-                                                                        )}
-                                                                    </>
-                                                                )}
-                                                            </motion.div>
-                                                        ))}
-
-                                                        {/* Add Screen Inline */}
-                                                        {auth.user?.role !== 'super_admin' && (
-                                                            selectedTheaterId === theater.id ? (
-                                                                <div className="flex items-center gap-2 p-3 rounded-2xl bg-neutral-800/40 border border-dashed border-white/10">
-                                                                    <input
-                                                                        type="text"
-                                                                        autoFocus
-                                                                        placeholder="Screen name..."
-                                                                        value={newScreenName}
-                                                                        onChange={(e) => setNewScreenName(e.target.value)}
-                                                                        className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 border border-transparent text-sm focus:outline-none focus:border-amber-500/30"
-                                                                    />
-                                                                    <button onClick={() => handleAddScreen(theater.id)} className="px-4 h-10 rounded-xl bg-amber-500 text-white text-xs font-bold">Add</button>
-                                                                    <button onClick={() => { setSelectedTheaterId(null); setNewScreenName(''); }} className="w-10 h-10 rounded-xl bg-neutral-700 text-white flex items-center justify-center">
-                                                                        <X className="w-4 h-4" />
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <motion.button
-                                                                    whileHover={{ scale: 1.01 }}
-                                                                    whileTap={{ scale: 0.99 }}
-                                                                    onClick={() => setSelectedTheaterId(theater.id)}
-                                                                    className="flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/10 text-amber-400/80 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5 transition-all text-xs font-bold"
-                                                                >
-                                                                    <Plus className="w-3.5 h-3.5" />
-                                                                    Add New Screen
-                                                                </motion.button>
-                                                            )
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    ))
+                                    // Super Admin Stats
+                                    <>
+                                        <div className="p-6 rounded-2xl bg-neutral-900 border border-white/5 relative overflow-hidden">
+                                            <p className="text-neutral-500 font-medium mb-1">Total Revenue</p>
+                                            <h3 className="text-3xl font-bold text-emerald-500">₹{Number(dashboardStats.totalRevenue || 0).toFixed(0)}</h3>
+                                        </div>
+                                        <div className="p-6 rounded-2xl bg-neutral-900 border border-white/5 relative overflow-hidden">
+                                            <p className="text-neutral-500 font-medium mb-1">Total Owners</p>
+                                            <h3 className="text-3xl font-bold text-white">{dashboardStats.totalOwners || 0}</h3>
+                                        </div>
+                                        <div className="p-6 rounded-2xl bg-neutral-900 border border-white/5 relative overflow-hidden">
+                                            <p className="text-neutral-500 font-medium mb-1">Pending Requests</p>
+                                            <h3 className="text-3xl font-bold text-amber-500">{dashboardStats.pendingApprovals || 0}</h3>
+                                        </div>
+                                    </>
                                 )}
                             </div>
-                        </motion.div>
-                    )}
+                        )}
 
-                    {/* MOVIES TAB */}
-                    {currentTab === 'movies' && (
-                        <motion.div
-                            key="movies"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className={`flex flex-col gap-6`}
-                        >
-                            {/* Request Movie Button for Regular Admins */}
-                            {auth.user?.role !== 'super_admin' && (
-                                <div className="flex justify-end">
-                                    <motion.button
-                                        whileHover={{ scale: 1.02 }}
-                                        whileTap={{ scale: 0.98 }}
-                                        onClick={() => setShowRequestModal(true)}
-                                        className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-white rounded-2xl font-bold transition-colors shadow-lg shadow-amber-500/20"
-                                    >
-                                        <Plus className="w-5 h-5" />
-                                        Request Missing Movie
-                                    </motion.button>
+                        {/* ─── Theaters Tab ─── */}
+                        {currentTab === 'theaters' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold">Your Theaters</h3>
+                                    {user?.role !== 'super_admin' && (
+                                        <button
+                                            onClick={() => setShowTheaterModal(true)}
+                                            className="px-4 py-2 rounded-xl bg-emerald-500 text-neutral-950 font-bold flex items-center gap-2 hover:bg-emerald-400 transition-colors"
+                                        >
+                                            <Plus className="w-4 h-4" /> Add Theater
+                                        </button>
+                                    )}
                                 </div>
-                            )}
-
-                            <div className={`grid gap-8 ${auth.user?.role === 'super_admin' ? 'lg:grid-cols-[400px_1fr]' : 'grid-cols-1'}`}>
-                                {/* Create Movie Form */}
-                                {auth.user?.role === 'super_admin' && (
-                                    <div className="space-y-6">
-                                        <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
-                                            <div className="space-y-1">
-                                                <h3 className="text-xl font-bold flex items-center gap-2">
-                                                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                                                        <Plus className="w-4 h-4 text-amber-400" />
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {theaters.map(theater => (
+                                        <div key={theater.id} className="bg-neutral-900 border border-white/5 rounded-2xl p-6 hover:border-emerald-500/30 transition-colors">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <h4 className="font-bold text-lg text-white">{theater.name}</h4>
+                                                    <div className="flex items-center gap-1 text-neutral-400 text-sm mt-1">
+                                                        <MapPin className="w-3 h-3" />
+                                                        {theater.location}
                                                     </div>
-                                                    Add Movie
-                                                </h3>
-                                                <p className="text-sm text-neutral-500">Register a new film in the system</p>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => handleDeleteTheater(theater.id)}
+                                                        className="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors"
+                                                        title="Delete Theater"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
+                                                        <Monitor className="w-5 h-5 text-emerald-500" />
+                                                    </div>
+                                                </div>
                                             </div>
-
-                                            <div className="space-y-4">
-                                                <div className="space-y-2">
-                                                    <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Title</label>
-                                                    <input type="text" placeholder="Movie Title" value={newMovie.title || ''} onChange={(e) => setNewMovie({ ...newMovie, title: e.target.value })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Description</label>
-                                                    <textarea placeholder="Plot summary..." value={newMovie.description || ''} onChange={(e) => setNewMovie({ ...newMovie, description: e.target.value })} className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all resize-none" />
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Genre</label>
-                                                        <input type="text" placeholder="Action..." value={newMovie.genre || ''} onChange={(e) => setNewMovie({ ...newMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
+                                            <div className="space-y-3">
+                                                <div className="text-sm text-neutral-500 font-semibold uppercase tracking-wider">Screens</div>
+                                                {theater.screens?.map(screen => (
+                                                    <div key={screen.id} className="flex items-center justify-between p-3 rounded-xl bg-neutral-800/50 group">
+                                                        <span className="text-sm font-medium text-white">{screen.name}</span>
+                                                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                onClick={() => setEditingScreen(screen)}
+                                                                className="p-1.5 rounded-lg hover:bg-emerald-500/20 text-neutral-400 hover:text-emerald-500 transition-colors"
+                                                            >
+                                                                <Edit2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteScreen(screen.id)}
+                                                                className="p-1.5 rounded-lg hover:bg-red-500/20 text-neutral-400 hover:text-red-500 transition-colors"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Mins</label>
-                                                        <input type="number" placeholder="120" value={newMovie.duration || ''} onChange={(e) => setNewMovie({ ...newMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-center" />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Rating</label>
-                                                        <input type="text" placeholder="8.5" value={newMovie.rating || ''} onChange={(e) => setNewMovie({ ...newMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-center" />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
-                                                        <input type="date" value={newMovie.releaseDate || ''} onChange={(e) => setNewMovie({ ...newMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-xs" />
-                                                    </div>
-                                                </div>
-
-                                                <div className="grid grid-cols-3 gap-4">
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Language</label>
-                                                        <input type="text" placeholder="English" value={newMovie.language || ''} onChange={(e) => setNewMovie({ ...newMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Audio</label>
-                                                        <input type="text" placeholder="Dolby Atmos" value={newMovie.audio || ''} onChange={(e) => setNewMovie({ ...newMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Format</label>
-                                                        <input type="text" placeholder="IMAX 2D" value={newMovie.format || ''} onChange={(e) => setNewMovie({ ...newMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-center">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
-                                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
-                                                            Upload
-                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', false)} />
-                                                        </label>
-                                                    </div>
-                                                    <input type="text" placeholder="https://..." value={newMovie.posterUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-center">
-                                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
-                                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
-                                                            Upload
-                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', false)} />
-                                                        </label>
-                                                    </div>
-                                                    <input type="text" placeholder="https://..." value={newMovie.bannerUrl || ''} onChange={(e) => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
-                                                </div>
-                                                <motion.button
-                                                    whileHover={{ scale: 1.02 }}
-                                                    whileTap={{ scale: 0.98 }}
-                                                    onClick={handleCreateMovie}
-                                                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors mt-2"
+                                                ))}
+                                                <button
+                                                    onClick={() => { setSelectedTheaterId(theater.id); setShowScreenModal(true); }}
+                                                    className="w-full py-2 rounded-xl border border-dashed border-neutral-700 text-neutral-500 hover:text-emerald-500 hover:border-emerald-500/50 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                                                 >
-                                                    Create Movie
-                                                </motion.button>
+                                                    <Plus className="w-4 h-4" /> Add Screen
+                                                </button>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
-                                {/* Movie List */}
-                                <div className="space-y-4">
-                                    {auth.user?.role === 'super_admin' && (
-                                        <div className="flex justify-end">
+                        {/* Edit Screen Modal */}
+                        <AnimatePresence>
+                            {editingScreen && (
+                                <Modal onClose={() => setEditingScreen(null)} title="Edit Screen">
+                                    <div className="space-y-4">
+                                        <input
+                                            className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                            placeholder="Screen Name"
+                                            value={editingScreen.name}
+                                            onChange={e => setEditingScreen({ ...editingScreen, name: e.target.value })}
+                                        />
+                                        <button onClick={handleUpdateScreen} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Update Screen</button>
+
+                                        <div className="border-t border-white/10 pt-4 mt-4">
+                                            <h4 className="font-bold text-white mb-2">Seat Layout</h4>
+                                            <p className="text-sm text-neutral-500 mb-4">Regenerate seating layout if necessary.</p>
                                             <button
-                                                onClick={handleRecalculatePopularity}
-                                                className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-bold transition-colors border border-white/5"
+                                                onClick={() => setGenScreenId(editingScreen.id)}
+                                                className="w-full py-2 rounded-xl border border-white/10 hover:bg-white/5 transition-colors text-sm font-bold"
                                             >
-                                                <TrendingUp className="w-4 h-4 text-amber-400" />
-                                                Recalculate Popularity
+                                                Configure Seats
                                             </button>
                                         </div>
-                                    )}
+                                    </div>
+                                </Modal>
+                            )}
+                        </AnimatePresence>
 
-                                    <div className="grid md:grid-cols-2 gap-6">
-                                        {movies.length === 0 ? (
-                                            <div className="col-span-full h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
-                                                <Film className="w-12 h-12 mb-3 opacity-20" />
-                                                <p className="font-medium">No movies added yet</p>
+                        {/* ─── Movies Tab ─── */}
+                        {currentTab === 'movies' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold">Movie Library</h3>
+                                    <div className="flex gap-2">
+                                        {user?.role === 'super_admin' && (
+                                            <button
+                                                onClick={handleRecalculatePopularity}
+                                                className="px-4 py-2 rounded-xl bg-purple-500/10 text-purple-500 font-bold flex items-center gap-2 hover:bg-purple-500/20 transition-colors"
+                                            >
+                                                <Star className="w-4 h-4" /> Recalc Popularity
+                                            </button>
+                                        )}
+                                        {user?.role !== 'super_admin' && (
+                                            <button
+                                                onClick={() => setShowRequestModal(true)}
+                                                className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-500 font-bold flex items-center gap-2 hover:bg-amber-500/20 transition-colors"
+                                            >
+                                                <MessageSquare className="w-4 h-4" /> Request Movie
+                                            </button>
+                                        )}
+                                        {user?.role === 'super_admin' && (
+                                            <button
+                                                onClick={() => { setEditingMovie(null); setShowMovieModal(true); }}
+                                                className="px-4 py-2 rounded-xl bg-emerald-500 text-neutral-950 font-bold flex items-center gap-2 hover:bg-emerald-400 transition-colors"
+                                            >
+                                                <Plus className="w-4 h-4" /> Add Movie
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                    {movies.map(movie => (
+                                        <div key={movie.id} className="group relative rounded-xl overflow-hidden bg-neutral-800 aspect-[2/3] border border-white/5 hover:border-emerald-500/50 transition-colors">
+                                            <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:opacity-40 transition-all duration-300" />
+                                            <div className="absolute inset-0 bg-neutral-950/60 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
+                                                {user?.role === 'super_admin' ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => { setEditingMovie(movie); setNewMovie(movie); setShowMovieModal(true); }}
+                                                            className="px-4 py-2 rounded-lg bg-neutral-800 text-white font-medium text-sm hover:bg-emerald-500 hover:text-neutral-950 transition-colors flex items-center gap-2"
+                                                        >
+                                                            <Edit2 className="w-4 h-4" /> Edit
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteMovie(movie.id)}
+                                                            className="px-4 py-2 rounded-lg bg-neutral-800 text-white font-medium text-sm hover:bg-red-500 transition-colors flex items-center gap-2"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" /> Delete
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <span className="text-xs text-neutral-400 px-4 text-center">Contact Super Admin to Edit</span>
+                                                )}
                                             </div>
-                                        ) : (
-                                            movies.map((movie) => (
-                                                <motion.div
-                                                    key={movie.id}
-                                                    layout
-                                                    initial={{ opacity: 0, scale: 0.95 }}
-                                                    animate={{ opacity: 1, scale: 1 }}
-                                                    className="group relative rounded-3xl bg-neutral-900 border border-white/5 overflow-hidden hover:border-amber-500/30 transition-all"
-                                                >
-                                                    <div className="flex aspect-[1.8/1]">
-                                                        <div className="w-1/3 relative overflow-hidden">
-                                                            <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-neutral-900"></div>
-                                                        </div>
-                                                        <div className="flex-1 p-5 space-y-3 flex flex-col justify-center">
-                                                            <div className="space-y-1">
-                                                                <h4 className="text-lg font-bold line-clamp-1 group-hover:text-amber-400 transition-colors">{movie.title}</h4>
-                                                                <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">{movie.description}</p>
-                                                            </div>
-                                                            <div className="flex flex-wrap gap-2">
-                                                                <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">{movie.genre}</span>
-                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
-                                                                    <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-500" />
-                                                                    <span className="text-[10px] font-bold text-amber-400">{movie.rating}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20">
-                                                                    <TrendingUp className="w-2.5 h-2.5 text-purple-400" />
-                                                                    <span className="text-[10px] font-bold text-purple-400">{movie.popularityScore ?? 50}%</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
-                                                                    <Clock className="w-2.5 h-2.5 text-blue-400" />
-                                                                    <span className="text-[10px] font-bold text-blue-400">{movie.duration}m</span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                                            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-neutral-950 to-transparent">
+                                                <h4 className="text-white font-bold text-sm truncate">{movie.title}</h4>
+                                                <p className="text-xs text-neutral-400">{movie.genre}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
-                                                    {/* Action Buttons Overlay */}
-                                                    {auth.user?.role === 'super_admin' && (
-                                                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <motion.button
-                                                                whileHover={{ scale: 1.1 }}
-                                                                whileTap={{ scale: 0.9 }}
-                                                                onClick={() => setEditingMovie(movie)}
-                                                                className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-amber-500 hover:border-amber-500 transition-all"
+                        {/* ─── Showtimes Tab ─── */}
+                        {currentTab === 'showtimes' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold">Upcoming Showtimes</h3>
+                                    <button
+                                        onClick={() => setShowShowtimeModal(true)}
+                                        className="px-4 py-2 rounded-xl bg-emerald-500 text-neutral-950 font-bold flex items-center gap-2 hover:bg-emerald-400 transition-colors"
+                                    >
+                                        <Plus className="w-4 h-4" /> Create Showtime
+                                    </button>
+                                </div>
+                                <div className="bg-neutral-900 border border-white/5 rounded-2xl overflow-hidden">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-neutral-800/50 text-xs uppercase text-neutral-500 font-bold">
+                                            <tr>
+                                                <th className="px-6 py-4">Movie</th>
+                                                <th className="px-6 py-4">Theater & Screen</th>
+                                                <th className="px-6 py-4">Time</th>
+                                                <th className="px-6 py-4">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {showtimes.map(showtime => (
+                                                <tr key={showtime.id} className="hover:bg-white/5 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 rounded-lg bg-neutral-800 overflow-hidden">
+                                                                <img src={showtime.movie?.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                            </div>
+                                                            <span className="font-medium text-white">{showtime.movie?.title}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-neutral-400 text-sm">
+                                                        {showtime.screen?.theater?.name} • {showtime.screen?.name}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2 text-sm text-white">
+                                                            <Calendar className="w-4 h-4 text-emerald-500" />
+                                                            {new Date(showtime.startTime).toLocaleDateString()}
+                                                            <span className="text-neutral-500">|</span>
+                                                            {new Date(showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <button
+                                                            onClick={() => handleDeleteShowtime(showtime.id)}
+                                                            className="p-2 rounded-lg hover:bg-red-500/10 text-neutral-400 hover:text-red-500 transition-colors"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ─── Wallet Tab ─── */}
+                        {currentTab === 'wallet' && (
+                            <div>
+                                <h3 className="text-lg font-bold mb-6">Wallet Requests</h3>
+                                <div className="space-y-4">
+                                    {walletRequests.length === 0 ? <p className="text-neutral-500">No requests.</p> : walletRequests.map(req => (
+                                        <div key={req.id} className="flex items-center justify-between p-4 rounded-xl bg-neutral-900 border border-white/5">
+                                            <div className="flex items-center gap-4">
+                                                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center",
+                                                    req.status === 'PENDING' ? "bg-amber-500/10 text-amber-500" :
+                                                        req.status === 'APPROVED' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                                                )}>
+                                                    <Wallet className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-white">₹{req.amount} Top-up • {req.user?.name || `UID: ${req.userId}`}</p>
+                                                    <p className="text-xs text-neutral-500 uppercase tracking-tighter">
+                                                        <span className="text-emerald-500 font-bold mr-1">{req.paymentMethod}</span>
+                                                        • Ref: {req.transactionRef} • {new Date(req.createdAt).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {req.status === 'PENDING' ? (
+                                                <div className="flex items-center gap-2">
+                                                    <button onClick={() => handleWalletAction(req.id, 'approve')} className="px-4 py-2 rounded-lg bg-emerald-500 text-neutral-950 font-bold text-sm">Approve</button>
+                                                    <button onClick={() => handleWalletAction(req.id, 'reject')} className="px-4 py-2 rounded-lg bg-red-500/10 text-red-500 font-bold text-sm">Reject</button>
+                                                </div>
+                                            ) : (
+                                                <span className={cn("text-sm font-bold", req.status === 'APPROVED' ? "text-emerald-500" : "text-red-500")}>
+                                                    {req.status}
+                                                </span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ─── Users Tab ─── */}
+                        {currentTab === 'users' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold">User Management</h3>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => { setNotifUserId(-1); setNotifForm({ title: 'Important Announcement', message: '', type: 'info', audience: 'everyone' }); }}
+                                            className="px-4 py-2 rounded-xl bg-purple-500/10 text-purple-500 font-bold flex items-center gap-2 hover:bg-purple-500/20 transition-colors"
+                                        >
+                                            <Bell className="w-4 h-4" /> Broadcast
+                                        </button>
+                                        <div className="relative">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search users..."
+                                                value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                                                className="h-10 pl-10 pr-4 rounded-xl bg-neutral-900 border border-white/5 text-sm text-white focus:border-emerald-500/50 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-neutral-900 border border-white/5 rounded-2xl overflow-hidden">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-neutral-800/50 text-xs uppercase text-neutral-500 font-bold">
+                                            <tr>
+                                                <th className="px-6 py-4">User</th>
+                                                <th className="px-6 py-4">Role</th>
+                                                <th className="px-6 py-4">Wallet</th>
+                                                <th className="px-6 py-4">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {users.map(u => (
+                                                <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <div>
+                                                            <p className="font-bold text-white">{u.name}</p>
+                                                            <p className="text-xs text-neutral-500">{u.email}</p>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <span className={cn("px-2 py-1 rounded-md text-xs font-bold uppercase",
+                                                            u.role === 'admin' ? "bg-amber-500/10 text-amber-500" :
+                                                                u.role === 'super_admin' ? "bg-purple-500/10 text-purple-500" : "bg-white/5 text-neutral-400"
+                                                        )}>{u.role.replace('_', ' ')}</span>
+                                                    </td>
+                                                    <td className="px-6 py-4 font-mono text-emerald-500">
+                                                        ₹{Number(u.walletBalance || 0).toFixed(2)}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => { setNotifUserId(u.id); setNotifForm({ ...notifForm, title: 'Notification', message: '', type: 'info' }); }}
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all"
+                                                                title="Notify User"
                                                             >
-                                                                <Edit2 className="w-4 h-4" />
-                                                            </motion.button>
-                                                            <motion.button
-                                                                whileHover={{ scale: 1.1 }}
-                                                                whileTap={{ scale: 0.9 }}
-                                                                onClick={() => handleDeleteMovie(movie.id)}
-                                                                className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-red-500 hover:border-red-500 transition-all"
+                                                                <MessageSquare className="w-3.5 h-3.5" />
+                                                                <span className="text-xs font-bold">Notify</span>
+                                                            </button>
+                                                            {u.role === 'admin' && (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => { setEditingCommissionUser(u); setNewCommissionRate(10); /* Default */ }}
+                                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border border-blue-500/20 transition-all"
+                                                                        title="Set Commission"
+                                                                    >
+                                                                        <Wallet className="w-3.5 h-3.5" />
+                                                                        <span className="text-xs font-bold">Comm.</span>
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                            {/* Pending Owner Approval */}
+                                                            {/* We can check based on a 'status' field or specific role like 'pending_owner' if it exists. 
+                                                            As fallback, let's show these buttons for all 'user' roles if admin wants to promote them, 
+                                                            OR specifically check if they have a 'requestStatus' if we added that to User type.
+                                                            For now, I'll add a 'Promote to Owner' button for testing integration. 
+                                                        */}
+                                                            {u.role === 'user' && (user?.role === 'super_admin' || user?.role === 'admin') && (
+                                                                <button
+                                                                    onClick={() => handleApproveOwnerRequest(u.id, 'APPROVE')}
+                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border border-blue-500/20 transition-all"
+                                                                    title="Promote to Theater Owner"
+                                                                >
+                                                                    <Monitor className="w-3.5 h-3.5" />
+                                                                    <span className="text-xs font-bold">Owner</span>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ─── Bookings Tab ─── */}
+                        {currentTab === 'bookings' && (
+                            <div>
+                                <h3 className="text-lg font-bold mb-6">Recent Bookings</h3>
+                                <div className="bg-neutral-900 border border-white/5 rounded-2xl overflow-hidden">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-neutral-800/50 text-xs uppercase text-neutral-500 font-bold">
+                                            <tr>
+                                                <th className="px-6 py-4">Movie</th>
+                                                <th className="px-6 py-4">User</th>
+                                                <th className="px-6 py-4">Showtime</th>
+                                                <th className="px-6 py-4">Amount</th>
+                                                <th className="px-6 py-4">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {bookings.map(booking => (
+                                                <tr key={booking.id} className="hover:bg-white/5 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-10 rounded bg-neutral-800 overflow-hidden">
+                                                                {booking.showtime?.movie?.posterUrl && (
+                                                                    <img src={booking.showtime.movie.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                )}
+                                                            </div>
+                                                            <span className="font-medium text-white">{booking.showtime?.movie?.title || 'Unknown Title'}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-neutral-400 text-sm">
+                                                        {booking.user?.name || 'Guest'}<br />
+                                                        <span className="text-xs text-neutral-600">{booking.user?.email}</span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-neutral-400">
+                                                        {booking.showtime?.startTime ? (
+                                                            <>
+                                                                {new Date(booking.showtime.startTime).toLocaleDateString()}<br />
+                                                                {new Date(booking.showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </>
+                                                        ) : 'N/A'}
+                                                    </td>
+                                                    <td className="px-6 py-4 font-mono text-emerald-500">
+                                                        ₹{booking.totalAmount}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={cn("px-2 py-1 rounded-md text-xs font-bold uppercase",
+                                                                booking.status === 'CONFIRMED' ? "bg-emerald-500/10 text-emerald-500" :
+                                                                    booking.status === 'CANCELLED' ? "bg-red-500/10 text-red-500" : "bg-white/5 text-neutral-400"
+                                                            )}>{booking.status}</span>
+                                                            <button
+                                                                onClick={() => handleDeleteBooking(booking.id)}
+                                                                className="p-1.5 rounded-lg hover:bg-neutral-800 text-neutral-500 hover:text-red-500 transition-colors ml-2"
+                                                                title="Delete Booking"
                                                             >
                                                                 <Trash2 className="w-4 h-4" />
-                                                            </motion.button>
+                                                            </button>
                                                         </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Pricing/Coupons Component Integration */}
+                        {currentTab === 'pricing' && <PricingRuleManager />}
+                        {currentTab === 'coupons' && <CouponManager />}
+
+                        {/* ─── Support Tab ─── */}
+                        {currentTab === 'support' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-16rem)] overflow-hidden">
+                                {/* Ticket List */}
+                                <div className="lg:col-span-4 bg-neutral-900/50 border border-white/5 rounded-3xl overflow-hidden flex flex-col">
+                                    <div className="p-4 border-b border-white/5 bg-neutral-900/50">
+                                        <h3 className="text-sm font-black uppercase tracking-widest text-neutral-500">Tickets</h3>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                        {adminTickets.length === 0 ? (
+                                            <div className="p-10 text-center text-neutral-600">No tickets today.</div>
+                                        ) : adminTickets.map(t => (
+                                            <div
+                                                key={t.id}
+                                                onClick={() => setSelectedAdminTicket(t)}
+                                                className={cn(
+                                                    "p-4 border-b border-white/5 cursor-pointer transition-all hover:bg-white/5",
+                                                    selectedAdminTicket?.id === t.id ? "bg-purple-500/10 border-r-2 border-r-purple-500" : ""
+                                                )}
+                                            >
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="text-[10px] font-black text-neutral-500 uppercase tracking-tighter">#{t.id}</span>
+                                                    <span className={cn(
+                                                        "text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider",
+                                                        t.status === 'OPEN' ? "border-blue-500/30 text-blue-400" :
+                                                            t.status === 'RESOLVED' ? "border-emerald-500/30 text-emerald-400" : "border-neutral-700 text-neutral-500"
+                                                    )}>{t.status}</span>
+                                                </div>
+                                                <h4 className="font-bold text-sm truncate text-white">{t.subject}</h4>
+                                                <p className="text-[10px] text-neutral-500 truncate">{t.user?.name || 'Unknown'}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Ticket Details */}
+                                <div className="lg:col-span-8 bg-neutral-900/50 border border-white/5 rounded-3xl overflow-hidden flex flex-col relative">
+                                    {selectedAdminTicket ? (
+                                        <>
+                                            <div className="p-6 border-b border-white/5 bg-neutral-900 flex justify-between items-center">
+                                                <div>
+                                                    <h3 className="font-black italic uppercase text-lg text-white">{selectedAdminTicket.subject}</h3>
+                                                    <p className="text-xs text-neutral-500">From: {selectedAdminTicket.user?.name} ({selectedAdminTicket.user?.email})</p>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <select
+                                                        value={selectedAdminTicket.status}
+                                                        onChange={(e) => handleUpdateTicketStatus(selectedAdminTicket.id, e.target.value)}
+                                                        className="bg-neutral-800 border border-white/10 rounded-xl px-3 h-10 text-xs font-bold text-white outline-none focus:border-purple-500/50"
+                                                    >
+                                                        <option value="OPEN">Open</option>
+                                                        <option value="IN_PROGRESS">In Progress</option>
+                                                        <option value="RESOLVED">Resolved</option>
+                                                        <option value="CLOSED">Closed</option>
+                                                    </select>
+                                                    {user?.role === 'super_admin' && (
+                                                        <button
+                                                            onClick={() => handleDeleteTicket(selectedAdminTicket.id)}
+                                                            className="flex items-center gap-1 px-3 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-bold uppercase tracking-wider"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                            Delete
+                                                        </button>
                                                     )}
-                                                </motion.div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
+                                                </div>
+                                            </div>
 
-                    {/* SHOWTIMES TAB */}
-                    {currentTab === 'showtimes' && (
-                        <motion.div
-                            key="showtimes"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className="grid lg:grid-cols-[400px_1fr] gap-8"
-                        >
-                            {/* Create Showtime Form */}
-                            <div className="space-y-6">
-                                <div className="rounded-3xl bg-neutral-900 border border-white/5 p-6 space-y-6 sticky top-44 max-h-[75vh] overflow-y-auto no-scrollbar">
-                                    <div className="space-y-1">
-                                        <h3 className="text-xl font-bold flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                                                <Calendar className="w-4 h-4 text-amber-400" />
-                                            </div>
-                                            Add Showtime
-                                        </h3>
-                                        <p className="text-sm text-neutral-500">Schedule a movie screening</p>
-                                    </div>
+                                            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                                                {/* Original Ticket */}
+                                                <div className="bg-white/5 border border-white/5 rounded-2xl p-4">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span className="text-[10px] font-black uppercase text-purple-400">Original Request</span>
+                                                        <span className="text-[10px] text-neutral-600">• {format(new Date(selectedAdminTicket.createdAt), 'MMM dd, hh:mm a')}</span>
+                                                    </div>
+                                                    <p className="text-sm text-neutral-300 leading-relaxed">{selectedAdminTicket.message}</p>
+                                                </div>
 
-                                    <div className="space-y-4 text-sm">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Movie</label>
-                                            <select value={newShowtime.movieId} onChange={(e) => setNewShowtime({ ...newShowtime, movieId: parseInt(e.target.value) })} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 appearance-none transition-all">
-                                                <option value={0}>Choose a movie...</option>
-                                                {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Select Screen</label>
-                                            <select value={newShowtime.screenId} onChange={(e) => handleScreenSelect(parseInt(e.target.value))} className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 appearance-none transition-all">
-                                                <option value={0}>Choose a screen...</option>
-                                                {theaters.flatMap(t => t.screens?.map(s => <option key={s.id} value={s.id}>{t.name} - {s.name}</option>))}
-                                            </select>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Date</label>
-                                                <input type="date" value={newShowtimeDate} onChange={(e) => setNewShowtimeDate(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-xs" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Time</label>
-                                                <input type="time" value={newShowtimeTime} onChange={(e) => setNewShowtimeTime(e.target.value)} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-transparent focus:border-amber-500/50" />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2 pt-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Demand Surge Threshold (%)</label>
-                                            <div className="flex items-center gap-3">
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="100"
-                                                    step="5"
-                                                    value={newShowtime.occupancyThreshold ?? 70}
-                                                    onChange={(e) => setNewShowtime({ ...newShowtime, occupancyThreshold: parseInt(e.target.value) })}
-                                                    className="flex-1 h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-                                                />
-                                                <span className="text-sm font-bold text-amber-400 w-12 text-right">{newShowtime.occupancyThreshold ?? 70}%</span>
-                                            </div>
-                                            <p className="text-[10px] text-neutral-600">Occupancy above this % triggers surge pricing.</p>
-                                        </div>
+                                            {selectedAdminTicket.replies?.map((r: AdminTicketReply) => {
+                                                    const isAdminSender = r.sender?.role === 'admin';
+                                                    const senderName = r.sender?.name ?? 'Support';
 
-                                        {selectedScreenTiers.length > 0 && (
-                                            <div className="space-y-3 pt-2">
-                                                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Tier Pricing</label>
-                                                <div className="space-y-2">
-                                                    {selectedScreenTiers.map(tier => (
-                                                        <div key={tier} className="flex items-center justify-between p-4 rounded-2xl bg-neutral-800/50 border border-white/5">
-                                                            <span className="font-bold text-neutral-300">{tier}</span>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-neutral-500 font-bold">₹</span>
-                                                                <input type="number" min="1" placeholder="0" value={newShowtime.tierPrices[tier] || ''} onChange={(e) => setNewShowtime({ ...newShowtime, tierPrices: { ...newShowtime.tierPrices, [tier]: parseFloat(e.target.value) } })} className="w-20 h-9 px-2 rounded-lg bg-neutral-900 border border-transparent focus:border-amber-500/50 text-center font-bold text-amber-400" />
+                                                    return (
+                                                        <div
+                                                            key={r.id}
+                                                            className={cn(
+                                                                "flex flex-col gap-1",
+                                                                isAdminSender ? "items-end" : "items-start"
+                                                            )}
+                                                        >
+                                                            <div
+                                                                className={cn(
+                                                                    "max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed",
+                                                                    isAdminSender
+                                                                        ? "bg-purple-600 text-white rounded-tr-none"
+                                                                        : "bg-white/5 border border-white/5 text-neutral-300 rounded-tl-none"
+                                                                )}
+                                                            >
+                                                                {r.message}
                                                             </div>
+                                                            <span className="text-[9px] font-bold text-neutral-600 uppercase tracking-widest px-1">
+                                                                {senderName} • {format(new Date(r.createdAt), 'hh:mm a')}
+                                                            </span>
                                                         </div>
-                                                    ))}
-                                                </div>
+                                                    );
+                                                })}
                                             </div>
-                                        )}
 
-                                        <motion.button
-                                            whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            onClick={handleCreateShowtime}
-                                            className="w-full h-14 rounded-2xl bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors mt-2"
-                                        >
-                                            Create Showtime
-                                        </motion.button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Showtime List */}
-                            <div className="space-y-4">
-                                {showtimes.length === 0 ? (
-                                    <div className="h-64 rounded-3xl border border-dashed border-white/5 flex flex-col items-center justify-center text-neutral-500 bg-neutral-900/50">
-                                        <Clock className="w-12 h-12 mb-3 opacity-20" />
-                                        <p className="font-medium">No showtimes scheduled</p>
-                                    </div>
-                                ) : (
-                                    showtimes.map((showtime) => (
-                                        <motion.div
-                                            key={showtime.id}
-                                            layout
-                                            className="group relative rounded-3xl bg-neutral-900 border border-white/5 p-6 hover:border-amber-500/30 hover:bg-neutral-900/80 transition-all"
-                                        >
-                                            <div className="flex items-start justify-between">
-                                                <div className="flex gap-5">
-                                                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col items-center justify-center shrink-0">
-                                                        <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">{new Date(showtime.startTime).toLocaleDateString([], { month: 'short' })}</span>
-                                                        <span className="text-lg font-black text-amber-400">{new Date(showtime.startTime).getDate()}</span>
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <h4 className="text-lg font-bold group-hover:text-amber-400 transition-colors">{showtime.movie?.title}</h4>
-                                                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                                            <p className="text-sm text-neutral-500 flex items-center gap-2">
-                                                                <MapPin className="w-3.5 h-3.5 text-amber-400/60" />
-                                                                {showtime.screen?.theater?.name} • {showtime.screen?.name}
-                                                            </p>
-                                                            <p className="text-sm text-neutral-400 flex items-center gap-2 font-semibold">
-                                                                <Clock className="w-3.5 h-3.5 text-blue-400" />
-                                                                {new Date(showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                                                            </p>
-                                                        </div>
+                                            {selectedAdminTicket.status !== 'CLOSED' && (
+                                                <div className="p-6 border-t border-white/5 bg-neutral-900">
+                                                    <div className="relative">
+                                                        <textarea
+                                                            value={adminReplyMessage}
+                                                            onChange={(e) => setAdminReplyMessage(e.target.value)}
+                                                            placeholder="Type your response..."
+                                                            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pr-14 text-sm text-white focus:border-purple-500/50 outline-none resize-none h-20"
+                                                        />
+                                                        <button
+                                                            onClick={() => handleAdminAddReply(selectedAdminTicket.id)}
+                                                            className="absolute bottom-3 right-3 w-10 h-10 bg-purple-600 hover:bg-purple-500 rounded-xl flex items-center justify-center transition-all shadow-lg shadow-purple-600/20"
+                                                        >
+                                                            <Send className="w-5 h-5 text-white" />
+                                                        </button>
                                                     </div>
                                                 </div>
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1, rotate: 90 }}
-                                                    whileTap={{ scale: 0.9 }}
-                                                    onClick={() => handleDeleteShowtime(showtime.id)}
-                                                    className="w-10 h-10 rounded-xl bg-red-400/5 border border-red-400/10 flex items-center justify-center text-red-500 hover:bg-red-400/10 transition-colors"
-                                                >
-                                                    <Trash2 className="w-4.5 h-4.5" />
-                                                </motion.button>
-                                            </div>
-                                        </motion.div>
-                                    ))
-                                )}
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {/* BOOKINGS TAB */}
-                    {currentTab === 'bookings' && (
-                        <motion.div
-                            key="bookings"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className="space-y-3"
-                        >
-                            {bookings.map((booking) => (
-                                <div key={booking.id} className="rounded-2xl bg-neutral-900 border border-neutral-800 p-4">
-                                    <div className="flex items-start justify-between mb-3">
-                                        <div className="flex-1">
-                                            <h4 className="font-bold mb-1">{booking.showtime?.movie?.title}</h4>
-                                            <p className="text-xs text-neutral-500 mb-2">{booking.user?.name} ({booking.user?.email})</p>
-                                            <div className="flex flex-wrap gap-2 text-xs">
-                                                <span className="px-2 py-1 rounded-lg bg-neutral-800">{booking.showtime?.screen?.theater?.name}</span>
-                                                <span className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-400">₹{booking.totalAmount}</span>
-                                                <span className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-400">{booking.status}</span>
-                                            </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="flex-1 flex flex-col items-center justify-center text-neutral-700">
+                                            <Headset className="w-16 h-16 mb-4 opacity-20" />
+                                            <p className="font-black italic uppercase tracking-tighter">Select a ticket to respond</p>
                                         </div>
-                                        <button onClick={() => handleDeleteBooking(booking.id)} className="w-9 h-9 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center"><Trash2 className="w-4 h-4" /></button>
-                                    </div>
+                                    )}
                                 </div>
-                            ))}
-                        </motion.div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* ─── Modals ─── */}
+                <AnimatePresence>
+                    {/* Theater Modal */}
+                    {showTheaterModal && (
+                        <Modal onClose={() => setShowTheaterModal(false)} title="Add New Theater">
+                            <div className="space-y-4">
+                                <input
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                    placeholder="Theater Name"
+                                    value={newTheater.name} onChange={e => setNewTheater({ ...newTheater, name: e.target.value })}
+                                />
+                                <input
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                    placeholder="Location"
+                                    value={newTheater.location} onChange={e => setNewTheater({ ...newTheater, location: e.target.value })}
+                                />
+                                <button onClick={handleCreateTheater} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Create Theater</button>
+                            </div>
+                        </Modal>
                     )}
 
-                    {currentTab === 'users' && (
-                        <motion.div
-                            key="users"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className="space-y-6"
-                        >
-                            {/* Toolbar */}
-                            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-neutral-900/50 p-4 rounded-3xl border border-white/5">
-                                <div className="relative w-full sm:w-96">
+                    {/* Screen Modal (Simplified) */}
+                    {showScreenModal && (
+                        <Modal onClose={() => setShowScreenModal(false)} title="Add Screen">
+                            <div className="space-y-4 overflow-y-auto max-h-[80vh] pr-2 custom-scrollbar">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Name</label>
                                     <input
-                                        type="text"
-                                        placeholder="Search users by name or email..."
-                                        value={userSearch}
-                                        onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
-                                        className="w-full h-12 pl-12 pr-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-amber-500/50 focus:bg-neutral-900 transition-all text-white placeholder:text-neutral-500"
+                                        className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                        placeholder="Screen Name (e.g. Screen 1)"
+                                        value={newScreenName} onChange={e => setNewScreenName(e.target.value)}
                                     />
-                                    <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                                 </div>
 
-                                <div className="flex items-center gap-3 w-full sm:w-auto">
-                                    <select
-                                        value={userRoleFilter}
-                                        onChange={(e) => { setUserRoleFilter(e.target.value); setUserPage(1); }}
-                                        className="h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-white cursor-pointer"
-                                    >
-                                        <option value="all">All Roles</option>
-                                        <option value="user">User</option>
-                                        <option value="admin">Admin</option>
-                                    </select>
+                                <div className="space-y-4 p-4 rounded-xl bg-neutral-950 border border-white/5">
+                                    <p className="text-xs font-bold text-neutral-500 uppercase">Default Seat Layout</p>
 
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-neutral-600 mb-1 uppercase">Columns</label>
+                                        <input
+                                            type="number"
+                                            className="w-full p-2 rounded-lg bg-neutral-900 border border-white/10 text-white text-sm"
+                                            value={seatCols}
+                                            onChange={e => setSeatCols(Number(e.target.value))}
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="block text-[10px] font-bold text-neutral-600 mb-1 uppercase">Tiers</label>
+                                        {seatTiers.map((tier, idx) => (
+                                            <div key={idx} className="grid grid-cols-12 gap-2 items-end bg-white/5 p-2 rounded-lg">
+                                                <div className="col-span-5">
+                                                    <input
+                                                        className="w-full bg-transparent border-b border-white/10 text-xs text-white p-1"
+                                                        value={tier.name}
+                                                        onChange={e => {
+                                                            const newTiers = [...seatTiers];
+                                                            newTiers[idx].name = e.target.value;
+                                                            setSeatTiers(newTiers);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="col-span-3">
+                                                    <input
+                                                        type="number"
+                                                        className="w-full bg-transparent border-b border-white/10 text-xs text-white p-1"
+                                                        value={tier.rows}
+                                                        onChange={e => {
+                                                            const newTiers = [...seatTiers];
+                                                            newTiers[idx].rows = Number(e.target.value);
+                                                            setSeatTiers(newTiers);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="col-span-3">
+                                                    <input
+                                                        type="number"
+                                                        className="w-full bg-transparent border-b border-white/10 text-xs text-white p-1"
+                                                        value={tier.price}
+                                                        onChange={e => {
+                                                            const newTiers = [...seatTiers];
+                                                            newTiers[idx].price = Number(e.target.value);
+                                                            setSeatTiers(newTiers);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="col-span-1 flex justify-end">
+                                                    <button
+                                                        onClick={() => setSeatTiers(seatTiers.filter((_, i) => i !== idx))}
+                                                        className="p-1 text-red-500 hover:bg-red-500/10 rounded"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <button
+                                            onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 100 }])}
+                                            className="w-full py-2 border border-dashed border-white/10 rounded-lg text-[10px] text-neutral-500 hover:text-white hover:border-white/20 transition-all"
+                                        >
+                                            + Add Tier
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <button onClick={() => selectedTheaterId && handleAddScreen(selectedTheaterId)} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Add Screen</button>
+                            </div>
+                        </Modal>
+                    )}
+
+                    {/* Movie Modal */}
+                    {showMovieModal && (
+                        <Modal onClose={() => setShowMovieModal(false)} title={editingMovie ? "Edit Movie" : "Add Movie"}>
+                            <div className="space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
+                                <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Title" value={newMovie.title} onChange={e => setNewMovie({ ...newMovie, title: e.target.value })} />
+                                <textarea className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Description" rows={3} value={newMovie.description} onChange={e => setNewMovie({ ...newMovie, description: e.target.value })} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Genre" value={newMovie.genre} onChange={e => setNewMovie({ ...newMovie, genre: e.target.value })} />
+                                    <input className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" type="number" placeholder="Duration (mins)" value={newMovie.duration} onChange={e => setNewMovie({ ...newMovie, duration: Number(e.target.value) })} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Poster</label>
+                                        <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white mb-2" placeholder="Poster URL" value={newMovie.posterUrl} onChange={e => setNewMovie({ ...newMovie, posterUrl: e.target.value })} />
+                                        <input type="file" className="text-xs text-neutral-500" onChange={e => handleFileUpload(e, 'posterUrl', !!editingMovie)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Banner</label>
+                                        <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white mb-2" placeholder="Banner URL" value={newMovie.bannerUrl} onChange={e => setNewMovie({ ...newMovie, bannerUrl: e.target.value })} />
+                                        <input type="file" className="text-xs text-neutral-500" onChange={e => handleFileUpload(e, 'bannerUrl', !!editingMovie)} />
+                                    </div>
+                                </div>
+                                <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Trailer URL (YouTube embed or share link)" value={newMovie.trailerUrl || ''} onChange={e => setNewMovie({ ...newMovie, trailerUrl: e.target.value })} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Language" value={newMovie.language} onChange={e => setNewMovie({ ...newMovie, language: e.target.value })} />
+                                    <input className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Rating (e.g. PG-13)" value={newMovie.rating} onChange={e => setNewMovie({ ...newMovie, rating: e.target.value })} />
+                                </div>
+                                <button onClick={handleSaveMovie} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Save Movie</button>
+                            </div>
+                        </Modal>
+                    )}
+
+                    {/* Showtime Modal */}
+                    {showShowtimeModal && (
+                        <Modal onClose={() => setShowShowtimeModal(false)} title="Schedule Showtime">
+                            <div className="space-y-4">
+                                <select
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                    onChange={e => setNewShowtime({ ...newShowtime, movieId: Number(e.target.value) })}
+                                >
+                                    <option value="">Select Movie</option>
+                                    {movies.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+                                </select>
+                                <select
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                    onChange={e => {
+                                        const sId = Number(e.target.value);
+                                        setNewShowtime({ ...newShowtime, screenId: sId });
+                                        if (sId) handleScreenSelect(sId);
+                                    }}
+                                >
+                                    <option value="">Select Screen</option>
+                                    {theaters.flatMap(t => t.screens || []).map(s => <option key={s.id} value={s.id}>{s.name} ({theaters.find(t => t.id === s.theaterId)?.name})</option>)}
+                                </select>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input type="date" className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" onChange={e => setNewShowtimeDate(e.target.value)} />
+                                    <input type="time" className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" onChange={e => setNewShowtimeTime(e.target.value)} />
+                                </div>
+                                <div className="p-3 rounded-xl bg-neutral-950 border border-white/10">
+                                    <p className="text-xs text-neutral-500 mb-2 uppercase font-bold">Base Prices (Overrides)</p>
+                                    {selectedScreenTiers.length > 0 ? (
+                                        selectedScreenTiers.map(tier => (
+                                            <div key={tier.name} className="flex justify-between items-center mb-2 last:mb-0">
+                                                <span className="text-sm text-white">{tier.name}</span>
+                                                <input
+                                                    type="number"
+                                                    className="w-24 p-1 rounded bg-neutral-900 border border-white/10 text-white text-right"
+                                                    placeholder={String(tier.price)}
+                                                    value={newShowtime.tierPrices[tier.name] || ''}
+                                                    onChange={e => setNewShowtime(prev => ({
+                                                        ...prev,
+                                                        tierPrices: { ...prev.tierPrices, [tier.name]: Number(e.target.value) }
+                                                    }))}
+                                                />
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p className="text-xs text-red-500 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+                                            Please select a screen to configure pricing.
+                                        </p>
+                                    )}
+                                </div>
+                                <button onClick={handleCreateShowtime} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Schedule</button>
+                            </div>
+                        </Modal>
+                    )}
+                </AnimatePresence>
+
+                {/* Notification Modal */}
+                <AnimatePresence>
+                    {notifUserId !== null && (
+                        <Modal onClose={() => setNotifUserId(null)} title={notifUserId === -1 ? "Broadcast Message" : "Send Notification"}>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Title</label>
+                                    <input
+                                        className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white font-bold"
+                                        placeholder="Notification Title"
+                                        value={notifForm.title}
+                                        onChange={e => setNotifForm({ ...notifForm, title: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Message</label>
+                                    <textarea
+                                        className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white resize-none h-32"
+                                        placeholder="Type your message here..."
+                                        value={notifForm.message}
+                                        onChange={e => setNotifForm({ ...notifForm, message: e.target.value })}
+                                    />
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Type</label>
+                                        <select
+                                            className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                            value={notifForm.type}
+                                            onChange={e => setNotifForm({ ...notifForm, type: e.target.value as 'info' | 'success' | 'warning' | 'error' })}
+                                        >
+                                            <option value="info">Info</option>
+                                            <option value="success">Success</option>
+                                            <option value="warning">Warning</option>
+                                            <option value="error">Error</option>
+                                        </select>
+                                    </div>
+                                    {notifUserId === -1 && (
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Audience</label>
+                                            <select
+                                                className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                                value={notifForm.audience}
+                                                onChange={e => setNotifForm({ ...notifForm, audience: e.target.value })}
+                                            >
+                                                <option value="users">All Users</option>
+                                                <option value="admins">All Admins</option>
+                                                <option value="everyone">Everyone</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex gap-3 pt-2">
                                     <button
-                                        onClick={() => {
-                                            setNotifUserId(-1); // -1 for Broadcast
-                                            setNotifForm({ title: 'System Announcement', message: '', type: 'info', audience: 'users' });
-                                        }}
-                                        className="h-12 px-6 rounded-2xl bg-amber-500 text-white font-bold hover:bg-amber-400 transition-colors flex items-center gap-2 whitespace-nowrap"
+                                        onClick={() => setNotifUserId(null)}
+                                        className="flex-1 py-3 rounded-xl bg-neutral-800 text-white font-bold hover:bg-neutral-700 transition-colors"
                                     >
-                                        <Bell className="w-5 h-5" />
-                                        Notify All
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSendNotification}
+                                        disabled={isSendingNotif || !notifForm.title || !notifForm.message}
+                                        className="flex-1 py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        {isSendingNotif ? 'Sending...' : 'Send'}
                                     </button>
                                 </div>
                             </div>
-
-                            <Table>
-                                <THead>
-                                    <TR>
-                                        <TH>User</TH>
-                                        <TH>Role</TH>
-                                        <TH>Status</TH>
-                                        <TH className="text-right">Actions</TH>
-                                    </TR>
-                                </THead>
-                                <TBody>
-                                    {isUsersLoading ? (
-                                        <TR>
-                                            <TD colSpan={4} className="px-6 py-12 text-center text-neutral-500">
-                                                <div className="flex justify-center items-center gap-2">
-                                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0s' }} />
-                                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0.1s' }} />
-                                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
-                                                </div>
-                                            </TD>
-                                        </TR>
-                                    ) : users.length === 0 ? (
-                                        <TR>
-                                            <TD colSpan={4} className="px-6 py-12 text-center text-neutral-500">
-                                                No users found.
-                                            </TD>
-                                        </TR>
-                                    ) : (
-                                        users.map((user) => (
-                                            <TR key={user.id}>
-                                                <TD>
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 border border-white/5">
-                                                            <Users className="w-5 h-5" />
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-bold text-white">{user.name}</p>
-                                                            <p className="text-xs text-neutral-500">{user.email}</p>
-                                                        </div>
-                                                    </div>
-                                                </TD>
-                                                <TD>
-                                                    <span
-                                                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${
-                                                            user.role === 'super_admin'
-                                                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                                                : user.role === 'admin'
-                                                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                                                    : 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-                                                        }`}
-                                                    >
-                                                        {user.role}
-                                                    </span>
-                                                </TD>
-                                                <TD>
-                                                    {user.adminRequestStatus === 'PENDING' && (
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={() => handleApproveOwnerRequest(user.id, 'APPROVE')}
-                                                                className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-400"
-                                                            >
-                                                                Approve
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleApproveOwnerRequest(user.id, 'REJECT')}
-                                                                className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/20 text-xs font-bold rounded-lg hover:bg-red-500/20"
-                                                            >
-                                                                Reject
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                    {user.role === 'admin' && (
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-neutral-400">Commission:</span>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setEditingCommissionUser(user);
-                                                                    setNewCommissionRate(Number(user.commissionRate) || 10);
-                                                                }}
-                                                                className="px-2 py-1 rounded bg-neutral-800 border border-white/10 hover:border-amber-500/50 text-xs font-mono text-amber-400 transition-colors"
-                                                            >
-                                                                {user.commissionRate}%
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                    {user.adminRequestStatus === 'REJECTED' && (
-                                                        <span className="text-[10px] text-red-500 font-bold bg-red-500/10 px-2 py-1 rounded">
-                                                            Request Rejected
-                                                        </span>
-                                                    )}
-                                                </TD>
-                                                <TD className="text-right">
-                                                    <button
-                                                        onClick={() => {
-                                                            setNotifUserId(user.id);
-                                                            setNotifForm({ ...notifForm, title: 'Message from Admin' });
-                                                        }}
-                                                        className="px-3 py-1.5 rounded-lg bg-neutral-800 text-neutral-300 text-xs font-bold hover:bg-neutral-700 transition-all border border-white/5"
-                                                    >
-                                                        Message
-                                                    </button>
-                                                </TD>
-                                            </TR>
-                                        ))
-                                    )}
-                                </TBody>
-                                <tfoot>
-                                    <TR>
-                                        <TD colSpan={4} className="px-6 py-4 border-t border-[var(--border)]">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-xs text-neutral-500">
-                                                    Page <span className="text-white font-bold">{userPage}</span> of {userTotalPages}
-                                                </span>
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={() => setUserPage((p) => Math.max(1, p - 1))}
-                                                        disabled={userPage === 1}
-                                                        className="px-4 py-2 rounded-xl bg-neutral-800 disabled:opacity-50 text-xs font-bold hover:bg-neutral-700 transition-colors"
-                                                    >
-                                                        Previous
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setUserPage((p) => Math.min(userTotalPages, p + 1))}
-                                                        disabled={userPage === userTotalPages}
-                                                        className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 disabled:opacity-50 text-xs font-bold hover:bg-amber-500/20 transition-colors"
-                                                    >
-                                                        Next
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </TD>
-                                    </TR>
-                                </tfoot>
-                            </Table>
-                        </motion.div>
-                    )}
-
-                    {/* Commission Edit Modal */}
-                    <AnimatePresence>
-                        {editingCommissionUser && (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-                            >
-                                <motion.div
-                                    initial={{ scale: 0.95, opacity: 0 }}
-                                    animate={{ scale: 1, opacity: 1 }}
-                                    exit={{ scale: 0.95, opacity: 0 }}
-                                    className="w-full max-w-md bg-neutral-900 border border-white/10 rounded-3xl p-6 shadow-2xl"
-                                >
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h3 className="text-xl font-bold">Update Commission</h3>
-                                        <button onClick={() => setEditingCommissionUser(null)} className="p-2 rounded-xl bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700">
-                                            <X className="w-5 h-5" />
-                                        </button>
-                                    </div>
-
-                                    <div className="space-y-6">
-                                        <div className="p-4 rounded-2xl bg-neutral-800/50 border border-white/5">
-                                            <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider mb-1">Theater Owner</p>
-                                            <p className="font-bold text-lg">{editingCommissionUser.name}</p>
-                                            <p className="text-sm text-neutral-400">{editingCommissionUser.email}</p>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Commission Rate (%)</label>
-                                            <div className="relative">
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    value={newCommissionRate}
-                                                    onChange={(e) => setNewCommissionRate(parseFloat(e.target.value))}
-                                                    className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 focus:bg-neutral-950 transition-all font-bold text-lg"
-                                                />
-                                                <span className="absolute right-6 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">%</span>
-                                            </div>
-                                            <p className="text-xs text-neutral-500 px-1">
-                                                The percentage of revenue deducted from each booking as platform fee.
-                                            </p>
-                                        </div>
-
-                                        <div className="flex gap-3 pt-2">
-                                            <button
-                                                onClick={() => setEditingCommissionUser(null)}
-                                                className="flex-1 h-12 rounded-xl bg-neutral-800 font-bold text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
-                                            >
-                                                Cancel
-                                            </button>
-                                            <button
-                                                onClick={handleUpdateCommission}
-                                                className="flex-1 h-12 rounded-xl bg-amber-500 font-bold text-white hover:bg-amber-400 transition-colors shadow-lg shadow-amber-500/20"
-                                            >
-                                                Update Rate
-                                            </button>
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-
-                    {/* WALLET TAB */}
-                    {currentTab === 'wallet' && (
-                        <motion.div
-                            key="wallet"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className="space-y-6"
-                        >
-                            {/* All Users Wallets */}
-                            <div className="space-y-4">
-                                <h3 className="text-xl font-bold">All Users Wallets</h3>
-                                {usersWithWallets.length === 0 ? (
-                                    <div className="p-8 rounded-3xl bg-neutral-900 border border-white/5 text-center text-neutral-500">
-                                        No users with wallets found.
-                                    </div>
-                                ) : (
-                                    <div className="grid gap-4">
-                                        {usersWithWallets.map(user => (
-                                            <div key={user.id} className="p-4 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-between">
-                                                <div>
-                                                    <p className="font-bold text-white">{user.name}</p>
-                                                    <p className="text-sm text-neutral-400">{user.email}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <span className="text-lg font-bold text-amber-400">₹{user.walletBalance || 0}</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Pending Requests */}
-                            <div className="space-y-4">
-                                <h3 className="text-xl font-bold">Pending Top-up Requests</h3>
-                                {walletRequests.length === 0 ? (
-                                    <div className="p-8 rounded-3xl bg-neutral-900 border border-white/5 text-center text-neutral-500">
-                                        No pending requests
-                                    </div>
-                                ) : (
-                                    <div className="grid gap-4">
-                                        {walletRequests.map(req => (
-                                            <div key={req.id} className="p-4 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-between">
-                                                <div>
-                                                    <p className="font-bold text-white"><span className="text-amber-400">₹{req.amount}</span> via {req.paymentMethod}</p>
-                                                    <p className="text-sm text-neutral-400">{req.user?.name} ({req.user?.email})</p>
-                                                    <p className="text-xs text-neutral-600 font-mono mt-1">{req.transactionRef}</p>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={() => handleApproveRequest(req.id)}
-                                                        className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-400 font-bold hover:bg-amber-500/20 transition-colors"
-                                                    >
-                                                        Approve
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleRejectRequest(req.id)}
-                                                        className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 font-bold hover:bg-red-500/20 transition-colors"
-                                                    >
-                                                        Reject
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </motion.div>
+                        </Modal>
                     )}
                 </AnimatePresence>
-            </div>
 
-            {/* Seat Generation Modal */}
-            <AnimatePresence>
-                {genScreenId && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
-                        onClick={() => setGenScreenId(null)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9 }}
-                            animate={{ scale: 1 }}
-                            exit={{ scale: 0.9 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-neutral-900 rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-neutral-800"
-                        >
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-xl font-bold">Generate Seats</h3>
-                                <button onClick={() => setGenScreenId(null)} className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center">
-                                    <X className="w-4 h-4" />
-                                </button>
-                            </div>
-
+                {/* Commission Modal */}
+                <AnimatePresence>
+                    {editingCommissionUser && (
+                        <Modal onClose={() => setEditingCommissionUser(null)} title="Update Commission Rate">
                             <div className="space-y-4">
+                                <p className="text-sm text-neutral-400">Set platform commission percentage for <strong className="text-white">{editingCommissionUser.name}</strong>.</p>
+                                <input
+                                    type="number"
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                    placeholder="Rate %"
+                                    value={newCommissionRate}
+                                    onChange={e => setNewCommissionRate(Number(e.target.value))}
+                                />
+                                <button onClick={handleUpdateCommission} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Update Rate</button>
+                            </div>
+                        </Modal>
+                    )}
+                </AnimatePresence>
+
+                {/* Request Movie Modal */}
+                <AnimatePresence>
+                    {showRequestModal && (
+                        <Modal onClose={() => setShowRequestModal(false)} title="Request New Movie">
+                            <div className="space-y-4">
+                                <input
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                    placeholder="Movie Title"
+                                    value={requestMovieName}
+                                    onChange={e => setRequestMovieName(e.target.value)}
+                                />
+                                <textarea
+                                    className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white resize-none"
+                                    placeholder="Additional Notes (Optional)"
+                                    rows={3}
+                                    value={requestNotes}
+                                    onChange={e => setRequestNotes(e.target.value)}
+                                />
+                                <button onClick={handleRequestMovie} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Send Request</button>
+                            </div>
+                        </Modal>
+                    )}
+                </AnimatePresence>
+
+                {/* Seat Generation Modal */}
+                <AnimatePresence>
+                    {genScreenId && (
+                        <Modal onClose={() => setGenScreenId(null)} title="Generate Seat Layout">
+                            <div className="space-y-4">
+                                <p className="text-sm text-neutral-400">Configure layout for this screen. <strong>This will overwrite existing seats!</strong></p>
+
                                 <div>
-                                    <label className="block text-sm font-medium text-neutral-400 mb-2">Columns</label>
-                                    <input type="number" value={seatCols} onChange={(e) => setSeatCols(parseInt(e.target.value))} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Columns</label>
+                                    <input
+                                        type="number"
+                                        className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                        value={seatCols}
+                                        onChange={e => setSeatCols(Number(e.target.value))}
+                                    />
                                 </div>
 
-                                <div>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <label className="text-sm font-medium text-neutral-400">Tiers</label>
-                                        <button onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 150 }])} className="text-sm text-amber-400 font-semibold">+ Add Tier</button>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {seatTiers.map((tier, idx) => (
-                                            <div key={idx} className="flex gap-2">
-                                                <input type="text" value={tier.name} onChange={e => { const t = [...seatTiers]; t[idx].name = e.target.value; setSeatTiers(t); }} className="flex-1 h-10 px-3 rounded-xl bg-neutral-800 border border-neutral-700 text-sm" placeholder="Name" />
-                                                <input type="number" value={tier.rows} onChange={e => { const t = [...seatTiers]; t[idx].rows = parseInt(e.target.value); setSeatTiers(t); }} className="w-20 h-10 px-3 rounded-xl bg-neutral-800 border border-neutral-700 text-sm text-center" placeholder="Rows" />
-                                                <input type="number" value={tier.price} onChange={e => { const t = [...seatTiers]; t[idx].price = parseFloat(e.target.value); setSeatTiers(t); }} className="w-20 h-10 px-3 rounded-xl bg-neutral-800 border border-neutral-700 text-sm text-center" placeholder="Price" />
-                                                <button onClick={() => setSeatTiers(seatTiers.filter((_, i) => i !== idx))} className="w-10 h-10 rounded-xl bg-red-500/10 text-red-400 flex items-center justify-center">
-                                                    <Trash2 className="w-4 h-4" />
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Tiers</label>
+                                    {seatTiers.map((tier, idx) => (
+                                        <div key={idx} className="grid grid-cols-12 gap-2 items-end bg-white/5 p-2 rounded-lg">
+                                            <div className="col-span-5">
+                                                <input
+                                                    className="w-full bg-transparent border-b border-white/10 text-xs text-white p-1"
+                                                    value={tier.name}
+                                                    onChange={e => {
+                                                        const newTiers = [...seatTiers];
+                                                        newTiers[idx].name = e.target.value;
+                                                        setSeatTiers(newTiers);
+                                                    }}
+                                                />
+                                            </div>
+                                            <div className="col-span-3">
+                                                <input
+                                                    type="number"
+                                                    className="w-full bg-transparent border-b border-white/10 text-xs text-white p-1"
+                                                    value={tier.rows}
+                                                    onChange={e => {
+                                                        const newTiers = [...seatTiers];
+                                                        newTiers[idx].rows = Number(e.target.value);
+                                                        setSeatTiers(newTiers);
+                                                    }}
+                                                />
+                                            </div>
+                                            <div className="col-span-3">
+                                                <input
+                                                    type="number"
+                                                    className="w-full bg-transparent border-b border-white/10 text-xs text-white p-1"
+                                                    value={tier.price}
+                                                    onChange={e => {
+                                                        const newTiers = [...seatTiers];
+                                                        newTiers[idx].price = Number(e.target.value);
+                                                        setSeatTiers(newTiers);
+                                                    }}
+                                                />
+                                            </div>
+                                            <div className="col-span-1 flex justify-end">
+                                                <button
+                                                    onClick={() => setSeatTiers(seatTiers.filter((_, i) => i !== idx))}
+                                                    className="p-1 text-red-500 hover:bg-red-500/10 rounded"
+                                                >
+                                                    <X className="w-3 h-3" />
                                                 </button>
                                             </div>
-                                        ))}
-                                    </div>
+                                        </div>
+                                    ))}
+                                    <button
+                                        onClick={() => setSeatTiers([...seatTiers, { name: 'New Tier', rows: 1, price: 100 }])}
+                                        className="w-full py-2 border border-dashed border-white/10 rounded-lg text-xs text-neutral-500 hover:text-white hover:border-white/20 transition-all"
+                                    >
+                                        + Add Tier
+                                    </button>
                                 </div>
 
-                                <button onClick={() => handleGenerateSeats(genScreenId)} className="w-full h-12 rounded-xl bg-amber-500 text-white font-semibold">
-                                    Generate Seats
-                                </button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Edit Movie Modal */}
-            <AnimatePresence>
-                {editingMovie && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
-                        onClick={() => setEditingMovie(null)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9 }}
-                            animate={{ scale: 1 }}
-                            exit={{ scale: 0.9 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-neutral-900 rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-neutral-800"
-                        >
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-xl font-bold">Edit Movie</h3>
-                                <button onClick={() => setEditingMovie(null)} className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center">
-                                    <X className="w-4 h-4" />
-                                </button>
-                            </div>
-                            <div className="space-y-3">
-                                <input type="text" value={editingMovie.title} onChange={(e) => setEditingMovie({ ...editingMovie, title: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
-                                <textarea value={editingMovie.description} onChange={(e) => setEditingMovie({ ...editingMovie, description: e.target.value })} className="w-full h-24 px-4 py-3 rounded-xl bg-neutral-800 border border-neutral-700 resize-none" />
-                                <div className="grid grid-cols-2 gap-3">
-                                    <input type="text" value={editingMovie.genre} onChange={(e) => setEditingMovie({ ...editingMovie, genre: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Genre" />
-                                    <input type="number" value={editingMovie.duration} onChange={(e) => setEditingMovie({ ...editingMovie, duration: parseInt(e.target.value) })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Duration (min)" />
-                                </div>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <input type="text" value={editingMovie.language || ''} onChange={(e) => setEditingMovie({ ...editingMovie, language: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Language" />
-                                    <input type="text" value={editingMovie.audio || ''} onChange={(e) => setEditingMovie({ ...editingMovie, audio: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Audio" />
-                                    <input type="text" value={editingMovie.format || ''} onChange={(e) => setEditingMovie({ ...editingMovie, format: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Format" />
-                                </div>
-                                <input type="text" value={editingMovie.rating || ''} onChange={(e) => setEditingMovie({ ...editingMovie, rating: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" placeholder="Rating (e.g., 8.5)" />
-                                <input type="date" value={editingMovie.releaseDate || ''} onChange={(e) => setEditingMovie({ ...editingMovie, releaseDate: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400" />
-
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Poster URL</label>
-                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
-                                            Upload
-                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'posterUrl', true)} />
-                                        </label>
-                                    </div>
-                                    <input type="text" value={editingMovie.posterUrl} onChange={(e) => setEditingMovie({ ...editingMovie, posterUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest ml-1">Banner URL</label>
-                                        <label className="text-xs text-amber-400 cursor-pointer hover:text-amber-400 font-bold">
-                                            Upload
-                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'bannerUrl', true)} />
-                                        </label>
-                                    </div>
-                                    <input type="text" value={editingMovie.bannerUrl || ''} onChange={(e) => setEditingMovie({ ...editingMovie, bannerUrl: e.target.value })} className="w-full h-12 px-4 rounded-xl bg-neutral-800 border border-neutral-700" />
-                                </div>
-                                <button onClick={handleUpdateMovie} className="w-full h-12 rounded-xl bg-amber-500 text-white font-semibold">Update Movie</button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Request Movie Modal */}
-            <AnimatePresence>
-                {showRequestModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
-                        onClick={() => setShowRequestModal(false)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-neutral-900 rounded-[2.5rem] p-8 max-w-md w-full border border-white/5 shadow-2xl"
-                        >
-                            <div className="flex items-center justify-between mb-8">
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-black tracking-tighter uppercase italic">
-                                        Request Movie
-                                    </h3>
-                                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider">
-                                        Submit to Super Admin
-                                    </p>
-                                </div>
-                                <button onClick={() => setShowRequestModal(false)} className="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center hover:bg-neutral-700 transition-colors">
-                                    <X className="w-5 h-5 text-neutral-400" />
-                                </button>
-                            </div>
-
-                            <div className="space-y-6">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Movie Name</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. Inception"
-                                        value={requestMovieName}
-                                        onChange={(e) => setRequestMovieName(e.target.value)}
-                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all font-bold"
-                                    />
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Notes (Optional)</label>
-                                    <textarea
-                                        placeholder="Any specific details..."
-                                        value={requestNotes}
-                                        onChange={(e) => setRequestNotes(e.target.value)}
-                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all resize-none font-medium leading-relaxed"
-                                    />
-                                </div>
-
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={handleRequestMovie}
-                                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-all flex items-center justify-center gap-3"
+                                <button
+                                    onClick={() => handleGenerateSeats(genScreenId)}
+                                    className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold"
                                 >
-                                    <Plus className="w-5 h-5" />
-                                    Send Request
-                                </motion.button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Admin Notification Modal */}
-            <AnimatePresence>
-                {notifUserId && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50"
-                        onClick={() => setNotifUserId(null)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-neutral-900 rounded-[2.5rem] p-8 max-w-md w-full border border-white/5 shadow-2xl"
-                        >
-                            <div className="flex items-center justify-between mb-8">
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-black tracking-tighter uppercase italic">
-                                        {notifUserId === -1 ? 'Broadcast Message' : 'Send Notification'}
-                                    </h3>
-                                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider">
-                                        {notifUserId === -1
-                                            ? notifForm.audience === 'admins'
-                                                ? 'Alerting all admins'
-                                                : notifForm.audience === 'both'
-                                                    ? 'Alerting users and admins'
-                                                    : 'Alerting all users'
-                                            : 'Targeted User Alert'}
-                                    </p>
-                                </div>
-                                <button onClick={() => setNotifUserId(null)} className="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center hover:bg-neutral-700 transition-colors">
-                                    <X className="w-5 h-5 text-neutral-400" />
+                                    Generate Layout
                                 </button>
                             </div>
+                        </Modal>
+                    )}
+                </AnimatePresence>
 
-                            <div className="space-y-6">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Alert Type</label>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {['info', 'success', 'warning'].map((type) => (
-                                            <button
-                                                key={type}
-                                                onClick={() => setNotifForm({ ...notifForm, type })}
-                                                className={`h-11 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${notifForm.type === type
-                                                    ? type === 'info' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-                                                        : type === 'success' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
-                                                            : 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
-                                                    : 'bg-neutral-800 text-neutral-500 hover:bg-neutral-700'
-                                                    }`}
-                                            >
-                                                {type}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {notifUserId === -1 && (
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Target Audience</label>
-                                        <select
-                                            value={notifForm.audience}
-                                            onChange={(e) => setNotifForm({ ...notifForm, audience: e.target.value })}
-                                            className="w-full h-12 px-4 rounded-2xl bg-neutral-800 border border-transparent focus:border-amber-500/50 text-white cursor-pointer"
-                                        >
-                                            <option value="users">All Users</option>
-                                            <option value="admins">All Admins</option>
-                                            <option value="both">Users and Admins</option>
-                                        </select>
-                                    </div>
-                                )}
-
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Title</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Headline..."
-                                        value={notifForm.title}
-                                        onChange={(e) => setNotifForm({ ...notifForm, title: e.target.value })}
-                                        className="w-full h-14 px-5 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all font-bold"
-                                    />
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest ml-1">Message</label>
-                                    <textarea
-                                        placeholder="Detailed content..."
-                                        value={notifForm.message}
-                                        onChange={(e) => setNotifForm({ ...notifForm, message: e.target.value })}
-                                        className="w-full h-32 px-5 py-4 rounded-2xl bg-neutral-800 border border-transparent text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500/50 transition-all resize-none font-medium leading-relaxed"
-                                    />
-                                </div>
-
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={handleSendNotification}
-                                    disabled={isSendingNotif}
-                                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
-                                >
-                                    {isSendingNotif ? (
-                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    ) : (
-                                        <>
-                                            <Bell className="w-5 h-5" />
-                                            {notifUserId === -1 ? 'Broadcast Now' : 'Send Now'}
-                                        </>
-                                    )}
-                                </motion.button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-
-                {/* PRICING RULES TAB — Super Admin only */}
-                {currentTab === 'pricing' && auth.user?.role === 'super_admin' && (
-                    <motion.div
-                        key="pricing"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="space-y-6"
-                    >
-                        <div>
-                            <h2 className="text-2xl font-bold">Pricing Rules</h2>
-                            <p className="text-sm text-neutral-500 mt-1">Configure global dynamic pricing rules applied to all tickets.</p>
-                        </div>
-                        <PricingRuleManager />
-                    </motion.div>
-                )}
-
-                {/* COUPONS TAB — Admin & Super Admin */}
-                {currentTab === 'coupons' && (
-                    <motion.div
-                        key="coupons"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="space-y-6"
-                    >
-                        <div>
-                            <h2 className="text-2xl font-bold">Coupon Codes</h2>
-                            <p className="text-sm text-neutral-500 mt-1">
-                                {auth.user?.role === 'super_admin'
-                                    ? 'Manage all coupon codes across the platform.'
-                                    : 'Create and manage coupon codes scoped to your movies and showtimes.'}
-                            </p>
-                        </div>
-                        <CouponManager />
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </div>
+            </main>
+        </div >
     );
 };
+
+// Simple Modal Component
+const Modal = ({ children, onClose, title }: { children: React.ReactNode, onClose: () => void, title: string }) => (
+    <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+    >
+        <motion.div
+            initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-lg bg-neutral-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+        >
+            <div className="p-4 border-b border-white/10 flex justify-between items-center">
+                <h3 className="font-bold text-white text-lg">{title}</h3>
+                <button onClick={onClose}><X className="w-5 h-5 text-neutral-400 hover:text-white" /></button>
+            </div>
+            <div className="p-6">{children}</div>
+        </motion.div>
+    </motion.div>
+);
 
 export default AdminDashboard;

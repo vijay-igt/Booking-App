@@ -13,7 +13,13 @@ interface Notification {
     createdAt: string;
 }
 
-const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+interface NotificationCenterProps {
+    isOpen: boolean;
+    onClose: () => void;
+    refreshToken?: number;
+}
+
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose, refreshToken }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [loading, setLoading] = useState(false);
     const auth = useAuth();
@@ -35,7 +41,7 @@ const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = (
         if (isOpen && auth.user) {
             fetchNotifications();
         }
-    }, [isOpen, auth.user, fetchNotifications]);
+    }, [isOpen, auth.user, fetchNotifications, refreshToken]);
 
     const markAsRead = async (id: number) => {
         try {

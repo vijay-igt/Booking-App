@@ -7,6 +7,7 @@ export interface Movie {
     rating: string;
     posterUrl: string;
     bannerUrl?: string;
+    trailerUrl?: string;
     releaseDate?: string;
     language?: string;
     audio?: string;
@@ -58,6 +59,7 @@ export interface Booking {
         email: string;
     };
     showtime?: Showtime;
+    seats?: Seat[];
 }
 
 export interface User {

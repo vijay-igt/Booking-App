@@ -1,15 +1,19 @@
 import { Router } from 'express';
-import { createMovie, getMovies, getMovieById, updateMovie, deleteMovie, recalculatePopularity } from '../controllers/movieController';
+import { createMovie, getMovies, getMovieById, updateMovie, deleteMovie, recalculatePopularity, getRecommendations, addToWatchlist, removeFromWatchlist, getWatchlist } from '../controllers/movieController';
 import { createShowtime, getShowtimesByMovie, getShowtimesByScreen, getShowtimeSeats, updateShowtime, deleteShowtime } from '../controllers/showtimeController';
-import { adminAuth, optionalAuth, superAdminAuth } from '../middleware/auth';
+import { adminAuth, optionalAuth, superAdminAuth, authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
 // Movie routes
 router.post('/movies', superAdminAuth, createMovie);
 router.post('/movies/popularity/recalculate', superAdminAuth, recalculatePopularity);
-router.get('/movies', optionalAuth, getMovies); // optionalAuth for "me" filter
-router.get('/movies/:id', optionalAuth, getMovieById); // optionalAuth for view tracking
+router.get('/movies', optionalAuth, getMovies);
+router.get('/movies/recommendations', optionalAuth, getRecommendations);
+router.get('/movies/watchlist', authenticateToken, getWatchlist);
+router.post('/movies/:id/watchlist', authenticateToken, addToWatchlist);
+router.delete('/movies/:id/watchlist', authenticateToken, removeFromWatchlist);
+router.get('/movies/:id', optionalAuth, getMovieById);
 router.put('/movies/:id', superAdminAuth, updateMovie);
 router.delete('/movies/:id', superAdminAuth, deleteMovie);
 

@@ -176,163 +176,163 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
 
         const transaction = await sequelize.transaction();
         try {
-                // Fetch Showtime & Related Info first
-                const showtime = await Showtime.findByPk(showtimeId, {
+            // Fetch Showtime & Related Info first
+            const showtime = await Showtime.findByPk(showtimeId, {
+                include: [{
+                    model: Screen,
                     include: [{
-                        model: Screen,
-                        include: [{
-                            model: Theater,
-                            include: [{ model: User, as: 'owner' }]
-                        }]
-                    }] as any,
-                    transaction
+                        model: Theater,
+                        include: [{ model: User, as: 'owner' }]
+                    }]
+                }] as any,
+                transaction
+            });
+
+            if (!showtime || !showtime.screen || !showtime.screen.theater || !showtime.screen.theater.owner) {
+                await transaction.rollback();
+                res.status(400).json({ message: 'Showtime or theater owner not found for processing' });
+                return;
+            }
+
+            // 1. FAIL FAST: Check if any seat is already booked for THIS showtime
+            const existingTickets = await Ticket.findAll({
+                include: [{ model: Booking, where: { showtimeId, status: 'confirmed' } }],
+                where: { seatId: seatIds },
+                transaction
+            });
+
+            if (existingTickets.length > 0) {
+                await transaction.rollback();
+                res.status(400).json({ message: 'One or more seats are already booked.' });
+                return;
+            }
+
+            let couponForUsage: Coupon | null = null;
+            if (couponCode) {
+                couponForUsage = await Coupon.findOne({
+                    where: { code: String(couponCode).toUpperCase() },
+                    transaction,
                 });
-
-                if (!showtime || !showtime.screen || !showtime.screen.theater || !showtime.screen.theater.owner) {
-                    await transaction.rollback();
-                    res.status(400).json({ message: 'Showtime or theater owner not found for processing' });
-                    return;
-                }
-
-                // 1. FAIL FAST: Check if any seat is already booked for THIS showtime
-                const existingTickets = await Ticket.findAll({
-                    include: [{ model: Booking, where: { showtimeId, status: 'confirmed' } }],
-                    where: { seatId: seatIds },
-                    transaction
-                });
-
-                if (existingTickets.length > 0) {
-                    await transaction.rollback();
-                    res.status(400).json({ message: 'One or more seats are already booked.' });
-                    return;
-                }
-
-                let couponForUsage: Coupon | null = null;
-                if (couponCode) {
-                    couponForUsage = await Coupon.findOne({
-                        where: { code: String(couponCode).toUpperCase() },
+                if (couponForUsage) {
+                    const userUsageCount = await CouponUsage.count({
+                        where: { couponId: couponForUsage.id, userId },
                         transaction,
                     });
-                    if (couponForUsage) {
-                        const userUsageCount = await CouponUsage.count({
-                            where: { couponId: couponForUsage.id, userId },
-                            transaction,
-                        });
-                        if (couponForUsage.perUserLimit !== null && userUsageCount >= couponForUsage.perUserLimit) {
-                            await transaction.rollback();
-                            res.status(400).json({ message: 'You have already used this coupon the maximum number of times.' });
-                            return;
-                        }
-                        if (couponForUsage.maxUses !== null && couponForUsage.usedCount >= couponForUsage.maxUses) {
-                            await transaction.rollback();
-                            res.status(400).json({ message: 'Coupon has been fully redeemed.' });
-                            return;
-                        }
-                    }
-                }
-
-                // 2. PAYMENT PROCESSING (User Side)
-                if (paymentMethod === 'WALLET') {
-                    // Get User Wallet
-                    let userWallet = await Wallet.findOne({ where: { userId, type: 'user' }, transaction });
-
-                    // Fallback to User.walletBalance if Wallet not found
-                    if (!userWallet) {
-                        const user = await User.findByPk(userId, { transaction });
-                        if (user) {
-                            userWallet = await Wallet.create({
-                                userId,
-                                type: 'user',
-                                balance: user.walletBalance || 0
-                            }, { transaction });
-                        }
-                    }
-
-                    if (!userWallet || Number(userWallet.balance) < Number(serverTotalAmount)) {
+                    if (couponForUsage.perUserLimit !== null && userUsageCount >= couponForUsage.perUserLimit) {
                         await transaction.rollback();
-                        res.status(400).json({ message: 'Insufficient wallet balance' });
+                        res.status(400).json({ message: 'You have already used this coupon the maximum number of times.' });
                         return;
                     }
+                    if (couponForUsage.maxUses !== null && couponForUsage.usedCount >= couponForUsage.maxUses) {
+                        await transaction.rollback();
+                        res.status(400).json({ message: 'Coupon has been fully redeemed.' });
+                        return;
+                    }
+                }
+            }
 
-                    // Deduct from User
-                    userWallet.balance = Number(userWallet.balance) - Number(serverTotalAmount);
-                    await userWallet.save({ transaction });
+            // 2. PAYMENT PROCESSING (User Side)
+            if (paymentMethod === 'WALLET') {
+                // Get User Wallet
+                let userWallet = await Wallet.findOne({ where: { userId, type: 'user' }, transaction });
 
-                    // Sync legacy User.walletBalance
+                // Fallback to User.walletBalance if Wallet not found
+                if (!userWallet) {
                     const user = await User.findByPk(userId, { transaction });
                     if (user) {
-                        user.walletBalance = userWallet.balance;
-                        await user.save({ transaction });
+                        userWallet = await Wallet.create({
+                            userId,
+                            type: 'user',
+                            balance: user.walletBalance || 0
+                        }, { transaction });
                     }
-
-                    // Record Debit Transaction
-                    await Transaction.create({
-                        userId,
-                        amount: -Number(serverTotalAmount),
-                        type: 'DEBIT',
-                        description: `Booking #${trackingId}`
-                    }, { transaction });
                 }
 
-                // 3. DISTRIBUTE EARNINGS (Owner & Platform)
-                const owner = showtime.screen.theater.owner;
-                const commissionRate = Number(owner.commissionRate) || 10;
-                const commissionAmount = (Number(serverTotalAmount) * commissionRate) / 100;
-                const ownerAmount = Number(serverTotalAmount) - commissionAmount;
-
-                // Update Owner Wallet
-                let ownerWallet = await Wallet.findOne({ where: { userId: owner.id, type: 'owner' }, transaction });
-                if (!ownerWallet) {
-                    ownerWallet = await Wallet.create({ userId: owner.id, type: 'owner', balance: 0 }, { transaction });
+                if (!userWallet || Number(userWallet.balance) < Number(serverTotalAmount)) {
+                    await transaction.rollback();
+                    res.status(400).json({ message: 'Insufficient wallet balance' });
+                    return;
                 }
-                ownerWallet.balance = Number(ownerWallet.balance) + ownerAmount;
-                await ownerWallet.save({ transaction });
 
-                // Update Platform Wallet
-                let platformWallet = await Wallet.findOne({ where: { type: 'platform' }, transaction });
-                if (!platformWallet) {
-                    const superAdmin = await User.findOne({ where: { role: 'super_admin' }, transaction });
-                    platformWallet = await Wallet.create({
-                        type: 'platform',
-                        balance: 0,
-                        userId: superAdmin ? superAdmin.id : null
-                    }, { transaction });
+                // Deduct from User
+                userWallet.balance = Number(userWallet.balance) - Number(serverTotalAmount);
+                await userWallet.save({ transaction });
+
+                // Sync legacy User.walletBalance
+                const user = await User.findByPk(userId, { transaction });
+                if (user) {
+                    user.walletBalance = userWallet.balance;
+                    await user.save({ transaction });
                 }
-                platformWallet.balance = Number(platformWallet.balance) + commissionAmount;
-                await platformWallet.save({ transaction });
 
-                // Record Transactions
+                // Record Debit Transaction
                 await Transaction.create({
-                    userId: platformWallet.userId,
-                    amount: Number(commissionAmount),
-                    type: 'CREDIT',
-                    description: `Platform Earnings from Booking #${trackingId}`
+                    userId,
+                    amount: -Number(serverTotalAmount),
+                    type: 'DEBIT',
+                    description: `Booking #${trackingId}`
                 }, { transaction });
+            }
 
-                await Transaction.create({
-                    userId: owner.id,
-                    amount: Number(ownerAmount),
-                    type: 'CREDIT',
-                    description: `Earnings from Booking #${trackingId}`
+            // 3. DISTRIBUTE EARNINGS (Owner & Platform)
+            const owner = showtime.screen.theater.owner;
+            const commissionRate = Number(owner.commissionRate) || 10;
+            const commissionAmount = (Number(serverTotalAmount) * commissionRate) / 100;
+            const ownerAmount = Number(serverTotalAmount) - commissionAmount;
+
+            // Update Owner Wallet
+            let ownerWallet = await Wallet.findOne({ where: { userId: owner.id, type: 'owner' }, transaction });
+            if (!ownerWallet) {
+                ownerWallet = await Wallet.create({ userId: owner.id, type: 'owner', balance: 0 }, { transaction });
+            }
+            ownerWallet.balance = Number(ownerWallet.balance) + ownerAmount;
+            await ownerWallet.save({ transaction });
+
+            // Update Platform Wallet
+            let platformWallet = await Wallet.findOne({ where: { type: 'platform' }, transaction });
+            if (!platformWallet) {
+                const superAdmin = await User.findOne({ where: { role: 'super_admin' }, transaction });
+                platformWallet = await Wallet.create({
+                    type: 'platform',
+                    balance: 0,
+                    userId: superAdmin ? superAdmin.id : null
                 }, { transaction });
+            }
+            platformWallet.balance = Number(platformWallet.balance) + commissionAmount;
+            await platformWallet.save({ transaction });
 
-                // 4. Create Booking & Tickets
-                const booking = await Booking.create({ userId, showtimeId, totalAmount: serverTotalAmount, status: 'confirmed' }, { transaction });
-                const tickets = seatIds.map((seatId: number) => ({ bookingId: booking.id, showtimeId, seatId }));
-                await Ticket.bulkCreate(tickets, { transaction });
-                if (couponForUsage) {
-                    await CouponUsage.create({
-                        couponId: couponForUsage.id,
-                        userId,
-                        bookingId: booking.id,
-                    }, { transaction });
-                    couponForUsage.usedCount = Number(couponForUsage.usedCount) + 1;
-                    await couponForUsage.save({ transaction });
-                }
-                await transaction.commit();
+            // Record Transactions
+            await Transaction.create({
+                userId: platformWallet.userId,
+                amount: Number(commissionAmount),
+                type: 'CREDIT',
+                description: `Platform Earnings from Booking #${trackingId}`
+            }, { transaction });
+
+            await Transaction.create({
+                userId: owner.id,
+                amount: Number(ownerAmount),
+                type: 'CREDIT',
+                description: `Earnings from Booking #${trackingId}`
+            }, { transaction });
+
+            // 4. Create Booking & Tickets
+            const booking = await Booking.create({ userId, showtimeId, totalAmount: serverTotalAmount, status: 'confirmed' }, { transaction });
+            const tickets = seatIds.map((seatId: number) => ({ bookingId: booking.id, showtimeId, seatId }));
+            await Ticket.bulkCreate(tickets, { transaction });
+            if (couponForUsage) {
+                await CouponUsage.create({
+                    couponId: couponForUsage.id,
+                    userId,
+                    bookingId: booking.id,
+                }, { transaction });
+                couponForUsage.usedCount = Number(couponForUsage.usedCount) + 1;
+                await couponForUsage.save({ transaction });
+            }
+            await transaction.commit();
 
 
-                res.status(201).json({ message: 'Booking successful (fallback)', booking });
+            res.status(201).json({ message: 'Booking successful (fallback)', booking });
         } catch (err) {
             if (transaction) await transaction.rollback();
             throw err;

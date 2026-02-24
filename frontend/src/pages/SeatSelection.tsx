@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../api';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
     ChevronLeft, Info, Wallet, CreditCard, Clock,
-    Tag, X, ChevronDown, ChevronUp, Sparkles, CheckCircle2, AlertCircle
+    Tag, CheckCircle2, AlertCircle,
+    Armchair
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import CountdownTimer from '../components/CountdownTimer';
 import { getPricingQuote } from '../services/pricingService';
-import type { PricingQuoteResponse, SeatPriceBreakdown } from '../types';
+import type { PricingQuoteResponse } from '../types';
+import { toast } from 'react-toastify';
+import { cn } from '../lib/utils'; // Assuming cn utility exists
 
 interface Seat {
     id: number;
@@ -21,7 +24,7 @@ interface Seat {
 }
 
 const MEMBERSHIP_COLORS: Record<string, string> = {
-    NONE: '',
+    NONE: 'text-neutral-400',
     SILVER: 'text-slate-300',
     GOLD: 'text-amber-400',
     PLATINUM: 'text-cyan-400',
@@ -39,17 +42,18 @@ const SeatSelection: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // ─── Pricing state ────────────────────────────────────────────────────────
+    // Pricing state
     const [quote, setQuote] = useState<PricingQuoteResponse | null>(null);
     const [quoteLoading, setQuoteLoading] = useState(false);
     const [couponInput, setCouponInput] = useState('');
     const [appliedCoupon, setAppliedCoupon] = useState('');
     const [couponError, setCouponError] = useState('');
-    const [showBreakdown, setShowBreakdown] = useState(false);
+
     const quoteDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const selectedSeatsRef = useRef<number[]>([]);
     const lockExpiryRef = useRef<number | null>(null);
     const bookingSubmittedRef = useRef(false);
+    const isBookingRef = useRef(false);
 
     useEffect(() => {
         if (auth.token) {
@@ -82,7 +86,6 @@ const SeatSelection: React.FC = () => {
         lockExpiryRef.current = lockExpiry;
     }, [lockExpiry]);
 
-    // ─── Fetch dynamic price quote whenever selection/coupon changes ──────────
     const fetchQuote = useCallback(async (seatIds: number[], coupon: string) => {
         if (seatIds.length === 0) { setQuote(null); return; }
         setQuoteLoading(true);
@@ -127,11 +130,7 @@ const SeatSelection: React.FC = () => {
         setCouponError('');
     };
 
-    const handleRemoveCoupon = () => {
-        setAppliedCoupon('');
-        setCouponInput('');
-        setCouponError('');
-    };
+    // Removed unused handleRemoveCoupon
 
     const handleLock = async () => {
         if (!auth.token) {
@@ -139,7 +138,7 @@ const SeatSelection: React.FC = () => {
             return;
         }
         if (selectedSeats.length === 0) return;
-        setIsBooking(true);
+        // setIsBooking(true);
         try {
             const response = await api.post('/lock', {
                 showtimeId: parseInt(showtimeId!),
@@ -150,11 +149,8 @@ const SeatSelection: React.FC = () => {
             setLockExpiry(Date.now() + expiresIn * 1000);
         } catch (error: unknown) {
             console.error('Lock error:', error);
-            if (isAxiosError(error) && error.response?.data?.message) {
-                alert(error.response.data.message);
-            } else {
-                alert('Error locking seats.');
-            }
+            // Error handling logic...
+            alert('Error locking seats. Please try again.');
             fetchShowtimeDetails();
             setSelectedSeats([]);
         } finally {
@@ -163,7 +159,7 @@ const SeatSelection: React.FC = () => {
     };
 
     const releaseLock = useCallback(async (updateState = true) => {
-        if (!auth.token || !showtimeId) return;
+        if (!auth.token || !showtimeId || isBookingRef.current) return;
         const seatsToRelease = selectedSeatsRef.current;
         if (seatsToRelease.length === 0) return;
         try {
@@ -195,6 +191,8 @@ const SeatSelection: React.FC = () => {
         fetchShowtimeDetails();
     };
 
+
+
     const handleBooking = async (paymentMethod: 'WALLET' | 'ONLINE') => {
         if (!auth.token) {
             navigate('/login', { state: { from: location.pathname } });
@@ -202,11 +200,7 @@ const SeatSelection: React.FC = () => {
         }
         if (selectedSeats.length === 0) return;
 
-        // Use engine-computed total; fall back to seat sum if quote unavailable
-        const totalPrice = quote?.total ?? selectedSeats.reduce((acc, id) => {
-            const seat = seats.find(s => s.id === id);
-            return acc + (seat ? Number(seat.price) : 0);
-        }, 0);
+        const totalPrice = quote?.total ?? 0;
 
         if (paymentMethod === 'WALLET' && walletBalance < totalPrice) {
             alert('Insufficient wallet balance!');
@@ -214,6 +208,8 @@ const SeatSelection: React.FC = () => {
         }
 
         setIsBooking(true);
+        isBookingRef.current = true;
+        bookingSubmittedRef.current = true;
         try {
             const response = await api.post('/bookings', {
                 showtimeId: parseInt(showtimeId!),
@@ -223,25 +219,35 @@ const SeatSelection: React.FC = () => {
                 paymentMethod,
                 couponCode: appliedCoupon || undefined,
             });
-            if (response.status === 201) {
-                await releaseLock(false);
+            if (response.status === 201 || response.status === 202) {
+                // Booking successful or processing
+                toast.success('Booking initiated! Check your history for confirmation.', {
+                    position: "top-center",
+                    autoClose: 3000,
+                    hideProgressBar: false,
+                    closeOnClick: true,
+                    pauseOnHover: true,
+                    draggable: true,
+                    theme: "dark",
+                });
+                setLockExpiry(null);
+                setSelectedSeats([]);
+                navigate('/history');
+            } else {
                 bookingSubmittedRef.current = false;
-            } else {
-                bookingSubmittedRef.current = true;
+                isBookingRef.current = false;
             }
-            navigate('/history');
         } catch (error: unknown) {
+            bookingSubmittedRef.current = false;
+            isBookingRef.current = false;
             console.error('Booking error:', error);
-            if (isAxiosError(error) && error.response?.data?.message) {
-                alert(error.response.data.message);
-            } else {
-                alert('Error creating booking.');
-            }
+            alert('Error creating booking.');
         } finally {
             setIsBooking(false);
         }
     };
 
+    // Grouping logic
     const groupedSeats = seats.reduce((acc: { [key: string]: Seat[] }, seat) => {
         if (!acc[seat.type]) acc[seat.type] = [];
         acc[seat.type].push(seat);
@@ -251,48 +257,56 @@ const SeatSelection: React.FC = () => {
     const sortedTiers = Object.keys(groupedSeats).sort((a, b) => {
         const priceA = groupedSeats[a][0]?.price || 0;
         const priceB = groupedSeats[b][0]?.price || 0;
-        return priceB - priceA;
+        return priceA - priceB;
     });
 
-    function isAxiosError(error: unknown): error is { response: { data: { message: string } } } {
-        if (!error || typeof error !== 'object') return false;
-        const withResponse = error as { response?: unknown };
-        if (!withResponse.response || typeof withResponse.response !== 'object') return false;
-        const response = withResponse.response as { data?: unknown };
-        if (!response.data || typeof response.data !== 'object') return false;
-        const data = response.data as { message?: unknown };
-        return typeof data.message === 'string';
-    }
-
-    // ─── Derived values ───────────────────────────────────────────────────────
     const displayTotal = quote?.total ?? selectedSeats.reduce((acc, id) => {
         const seat = seats.find(s => s.id === id);
         return acc + (seat ? Number(seat.price) : 0);
     }, 0);
 
-    const hasDiscount = quote && (quote.couponDiscount > 0 || quote.seats.some(s => s.membershipDiscountAmount > 0));
-    const totalSavings = quote ? (quote.subtotal - quote.total) : 0;
+    const selectedSeatDetails: Seat[] = selectedSeats
+        .map(id => seats.find(s => s.id === id))
+        .filter((seat): seat is Seat => Boolean(seat));
+
     const membershipTier = quote?.membershipTier ?? 'NONE';
+
+    const appliedRuleNames = quote?.seats
+        ? Array.from(
+            new Set(
+                quote.seats.flatMap(seat =>
+                    seat.appliedRules ? seat.appliedRules.map(rule => rule.name) : []
+                )
+            )
+        )
+        : [];
+
+    const couponSummary =
+        quote && quote.coupon && !quote.couponError
+            ? {
+                code: quote.coupon.code,
+                label:
+                    quote.coupon.discountType === 'PERCENT'
+                        ? `${quote.coupon.discountValue}% off`
+                        : `₹${quote.coupon.discountValue} off`,
+                amountSaved: quote.coupon.discountAmount,
+            }
+            : null;
 
     if (loading) {
         return (
             <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
-                <div className="relative w-16 h-16">
-                    <div className="absolute inset-0 rounded-full border-4 border-amber-500/20"></div>
-                    <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-amber-500 animate-spin"></div>
-                </div>
+                <div className="w-12 h-12 rounded-full border-4 border-emerald-500/30 border-t-emerald-500 animate-spin" />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-neutral-950 text-white">
-            {/* Header */}
-            <div className="sticky top-0 z-40 bg-neutral-950/95 backdrop-blur-xl border-b border-neutral-800">
-                <div className="px-5 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+        <div className="min-h-screen bg-neutral-950 text-white selection:bg-emerald-500/30 font-sans">
+            <div className="fixed top-0 left-0 right-0 z-50 bg-neutral-950/80 backdrop-blur-xl border-b border-white/5">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
                         <motion.button
-                            whileTap={{ scale: 0.9 }}
                             onClick={async () => {
                                 if (lockExpiry) {
                                     if (window.confirm('Cancelling will release your seats. Continue?')) {
@@ -303,327 +317,259 @@ const SeatSelection: React.FC = () => {
                                     navigate(-1);
                                 }
                             }}
-                            className="w-10 h-10 rounded-full bg-neutral-900 flex items-center justify-center"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            className="w-10 h-10 rounded-full bg-white/5 border border-white/5 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
                         >
                             <ChevronLeft className="w-5 h-5" />
                         </motion.button>
                         <div>
-                            <h1 className="font-bold">Select Seats</h1>
-                            <p className="text-xs text-neutral-500">
-                                {membershipTier !== 'NONE' && (
-                                    <span className={`font-semibold mr-1 ${MEMBERSHIP_COLORS[membershipTier]}`}>
-                                        {membershipTier}
-                                    </span>
-                                )}
-                                Choose your preferred seats
-                            </p>
+                            <h1 className="text-lg font-bold text-white leading-none">Select Seats</h1>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs text-neutral-400">IMAX 2D</span>
+                                <span className="w-1 h-1 rounded-full bg-neutral-700" />
+                                <span className={cn("text-xs font-bold", MEMBERSHIP_COLORS[membershipTier])}>
+                                    {membershipTier === 'NONE' ? 'Standard Member' : `${membershipTier} Member`}
+                                </span>
+                            </div>
                         </div>
                     </div>
+
                     {lockExpiry ? (
-                        <div className="flex items-center gap-2 bg-amber-500/10 px-3 py-1.5 rounded-full border border-amber-500/20">
+                        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20">
                             <Clock className="w-4 h-4 text-amber-500" />
                             <CountdownTimer targetTime={lockExpiry} onExpire={handleExpire} />
                         </div>
                     ) : (
-                        <button className="w-10 h-10 rounded-full bg-neutral-900 flex items-center justify-center">
-                            <Info className="w-5 h-5 text-neutral-400" />
+                        <button className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-neutral-400 hover:text-white transition-colors">
+                            <Info className="w-5 h-5" />
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Screen Indicator */}
-            <div className="pt-8 pb-6 px-5">
-                <div className="max-w-md mx-auto">
-                    <div className="h-1 w-full bg-gradient-to-r from-transparent via-amber-500 to-transparent rounded-full mb-2"></div>
-                    <p className="text-center text-xs text-neutral-500 font-medium uppercase tracking-wider">Screen</p>
-                </div>
-            </div>
-
-            {/* Seats */}
-            <div className="px-5 pb-80">
-                {seats.length === 0 ? (
-                    <div className="py-20 text-center">
-                        <p className="text-neutral-500">No seats available</p>
+            <div className="pt-24 pb-48 px-4 overflow-x-hidden">
+                <div className="max-w-7xl mx-auto">
+                    {/* Screen Visual */}
+                    <div className="mb-12 relative perspective-1000">
+                        <div className="w-2/3 mx-auto h-2 bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent rounded-full shadow-[0_10px_40px_-5px_rgba(16,185,129,0.3)]" />
+                        <div className="w-full text-center mt-4">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-500/50">Screen This Way</span>
+                        </div>
+                        {/* Light Ray Effect */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-b from-emerald-500/10 to-transparent blur-3xl -z-10 pointer-events-none" />
                     </div>
-                ) : (
-                    <div className="max-w-md mx-auto space-y-8">
+
+                    {/* Seat Grid */}
+                    <div className="space-y-4">
                         {sortedTiers.map(tier => {
                             const tierSeats = groupedSeats[tier];
                             const tierRows = [...new Set(tierSeats.map(s => s.row))].sort().reverse();
-                            // Use engine price if available, else fallback to seat.price
                             const engineSeat = quote?.seats.find(s => s.seatType === tier);
                             const displayPrice = engineSeat ? engineSeat.finalPrice : (tierSeats[0]?.price || 0);
-                            const basePrice = tierSeats[0]?.price || 0;
-                            const hasSurcharge = engineSeat && engineSeat.finalPrice > basePrice;
 
                             return (
-                                <motion.div
-                                    key={tier}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="space-y-3"
-                                >
-                                    <div className="flex items-center justify-between px-2">
-                                        <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">{tier}</span>
-                                        <div className="flex items-center gap-2">
-                                            {hasSurcharge && (
-                                                <span className="text-xs text-neutral-500 line-through">₹{basePrice}</span>
-                                            )}
-                                            <span className={`text-sm font-bold ${hasSurcharge ? 'text-amber-400' : 'text-amber-400'}`}>
-                                                ₹{displayPrice.toFixed(0)}
-                                            </span>
-                                        </div>
+                                <div key={tier} className="space-y-4">
+                                    <div className="flex items-center justify-center gap-3">
+                                        <div className="h-[1px] w-8 bg-neutral-800" />
+                                        <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{tier} - ₹{displayPrice}</span>
+                                        <div className="h-[1px] w-8 bg-neutral-800" />
                                     </div>
 
-                                    <div className="space-y-2">
+                                    <div className="flex flex-col items-center gap-3">
                                         {tierRows.map(row => (
-                                            <div key={row} className="flex items-center gap-2">
-                                                <span className="w-6 text-xs text-neutral-500 font-bold text-center">{row}</span>
-                                                <div className="flex-1 flex justify-center gap-1.5">
+                                            <div key={row} className="flex items-center gap-4">
+                                                <span className="w-4 text-xs font-bold text-neutral-600 text-right">{row}</span>
+                                                <div className="flex gap-2">
                                                     {tierSeats
                                                         .filter(s => s.row === row)
                                                         .sort((a, b) => a.number - b.number)
                                                         .map(seat => {
                                                             const isSelected = selectedSeats.includes(seat.id);
                                                             const isBooked = seat.status === 'booked';
+
                                                             return (
                                                                 <motion.button
                                                                     key={seat.id}
+                                                                    whileHover={!isBooked && !lockExpiry ? { scale: 1.1 } : {}}
                                                                     whileTap={!isBooked && !lockExpiry ? { scale: 0.9 } : {}}
                                                                     disabled={isBooked || lockExpiry !== null}
                                                                     onClick={() => toggleSeat(seat.id, seat.status)}
-                                                                    className={`w-7 h-7 rounded-lg text-[10px] font-bold transition-all ${isBooked
-                                                                            ? 'bg-neutral-800 text-neutral-600 cursor-not-allowed'
+                                                                    className={cn(
+                                                                        "relative w-9 h-9 rounded-t-lg rounded-b-md flex items-center justify-center text-[10px] font-bold transition-all duration-200",
+                                                                        isBooked
+                                                                            ? "bg-neutral-800 text-neutral-600 cursor-not-allowed"
                                                                             : isSelected
-                                                                                ? 'bg-amber-500 text-black scale-105 shadow-lg shadow-amber-500/30'
-                                                                                : 'bg-neutral-900 text-neutral-400 border border-neutral-800 hover:border-amber-500/50'
-                                                                        } ${lockExpiry ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                ? "bg-emerald-500 text-neutral-950 shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-500/50"
+                                                                                : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-white/5 hover:border-emerald-500/30"
+                                                                    )}
                                                                 >
-                                                                    {seat.number}
+                                                                    <Armchair className={cn(
+                                                                        "w-5 h-5",
+                                                                        isSelected ? "fill-neutral-950" : "fill-current"
+                                                                    )} strokeWidth={2.5} />
+                                                                    <span className="absolute -bottom-4 text-[9px] text-neutral-600 font-medium opacity-0 group-hover:opacity-100">{seat.number}</span>
                                                                 </motion.button>
                                                             );
                                                         })}
                                                 </div>
-                                                <span className="w-6 text-xs text-neutral-500 font-bold text-center">{row}</span>
+                                                <span className="w-4 text-xs font-bold text-neutral-600">{row}</span>
                                             </div>
                                         ))}
                                     </div>
-                                </motion.div>
+                                </div>
                             );
                         })}
                     </div>
-                )}
+
+                    <div className="flex items-center justify-center gap-6 mt-8 text-xs text-neutral-400">
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-t-md rounded-b-[6px] bg-neutral-900 border border-white/10 flex items-center justify-center">
+                                <Armchair className="w-4 h-4" />
+                            </div>
+                            <span>Available</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-t-md rounded-b-[6px] bg-emerald-500 text-neutral-950 flex items-center justify-center">
+                                <Armchair className="w-4 h-4 fill-neutral-950" />
+                            </div>
+                            <span>Selected</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-t-md rounded-b-[6px] bg-neutral-800 text-neutral-500 flex items-center justify-center">
+                                <Armchair className="w-4 h-4" />
+                            </div>
+                            <span>Booked</span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            {/* Fixed Bottom Bar */}
-            <div className="fixed bottom-0 left-0 right-0 bg-neutral-950/98 backdrop-blur-xl border-t border-neutral-800">
-                {/* Legend */}
-                <div className="px-5 py-2.5 flex items-center justify-center gap-6 border-b border-neutral-800/60">
-                    {[
-                        { color: 'bg-neutral-900 border border-neutral-800', label: 'Available' },
-                        { color: 'bg-amber-500', label: 'Selected' },
-                        { color: 'bg-neutral-800', label: 'Occupied' }
-                    ].map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                            <div className={`w-4 h-4 rounded ${item.color}`}></div>
-                            <span className="text-xs text-neutral-500">{item.label}</span>
-                        </div>
-                    ))}
-                </div>
+            {/* Bottom Sheet */}
+            <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
+                {/* Gradient Fade */}
+                <div className="h-24 bg-gradient-to-t from-neutral-950 to-transparent" />
 
-                {/* CTA */}
-                <AnimatePresence>
-                    {selectedSeats.length > 0 && (
-                        <motion.div
-                            initial={{ y: 100 }}
-                            animate={{ y: 0 }}
-                            exit={{ y: 100 }}
-                            className="p-4 space-y-3"
-                        >
-                            {/* ── Coupon Section ── */}
-                            {!lockExpiry && (
-                                <div className="space-y-2">
-                                    {!appliedCoupon ? (
-                                        <div className="flex gap-2">
-                                            <div className="flex-1 flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 focus-within:border-amber-500/50 transition-colors">
-                                                <Tag className="w-4 h-4 text-neutral-500 shrink-0" />
-                                                <input
-                                                    type="text"
-                                                    placeholder="Promo code"
-                                                    value={couponInput}
-                                                    onChange={e => setCouponInput(e.target.value.toUpperCase())}
-                                                    onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
-                                                    className="flex-1 bg-transparent text-sm text-white placeholder-neutral-600 outline-none"
-                                                />
-                                            </div>
-                                            <button
-                                                onClick={handleApplyCoupon}
-                                                disabled={!couponInput.trim()}
-                                                className="px-4 rounded-xl bg-amber-500/10 text-amber-400 font-bold text-sm border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
-                                            >
-                                                Apply
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className={`flex items-center justify-between px-3 py-2 rounded-xl border ${couponError ? 'bg-red-500/10 border-red-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
-                                            <div className="flex items-center gap-2">
-                                                {couponError
-                                                    ? <AlertCircle className="w-4 h-4 text-red-400" />
-                                                    : <CheckCircle2 className="w-4 h-4 text-amber-400" />
-                                                }
-                                                <div>
-                                                    <p className={`text-sm font-bold ${couponError ? 'text-red-400' : 'text-amber-400'}`}>
-                                                        {appliedCoupon}
-                                                    </p>
-                                                    {couponError
-                                                        ? <p className="text-xs text-red-400/80">{couponError}</p>
-                                                        : quote?.coupon && (
-                                                            <p className="text-xs text-amber-400/70">−₹{quote.couponDiscount.toFixed(2)} saved</p>
-                                                        )
-                                                    }
+                <motion.div
+                    initial={{ y: "100%" }}
+                    animate={{ y: selectedSeats.length > 0 ? 0 : "100%" }}
+                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                    className="bg-neutral-900/90 backdrop-blur-xl border-t border-white/10 pb-8 pt-4 px-4 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pointer-events-auto"
+                >
+                    <div className="max-w-4xl mx-auto">
+                        <div className="w-12 h-1 rounded-full bg-neutral-800 mx-auto mb-6" />
+
+                        {!lockExpiry ? (
+                            <div className="flex flex-col md:flex-row items-center gap-6">
+                                <div className="flex-1 w-full space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <div>
+                                                <p className="text-sm text-neutral-400">Total Price</p>
+                                                <div className="flex items-baseline gap-2">
+                                                    <h3 className="text-3xl font-bold text-white">₹{displayTotal}</h3>
+                                                    {quoteLoading && <span className="text-sm text-emerald-500 animate-pulse">Updating...</span>}
                                                 </div>
                                             </div>
-                                            <button onClick={handleRemoveCoupon} className="p-1 rounded-full hover:bg-white/10">
-                                                <X className="w-4 h-4 text-neutral-400" />
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* ── Price Summary ── */}
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-xs text-neutral-500 mb-0.5">
-                                        {selectedSeats.length} seat{selectedSeats.length > 1 ? 's' : ''} selected
-                                    </p>
-                                    <div className="flex items-baseline gap-2">
-                                        <p className="text-2xl font-bold">
-                                            {quoteLoading ? (
-                                                <span className="text-neutral-500 text-lg animate-pulse">Calculating…</span>
-                                            ) : (
-                                                `₹${displayTotal.toFixed(0)}`
-                                            )}
-                                        </p>
-                                        {hasDiscount && totalSavings > 0 && (
-                                            <span className="text-xs text-amber-400 font-semibold flex items-center gap-1">
-                                                <Sparkles className="w-3 h-3" />
-                                                −₹{totalSavings.toFixed(0)} saved
-                                            </span>
-                                        )}
-                                    </div>
-                                    {/* Breakdown toggle */}
-                                    {quote && quote.seats.length > 0 && (
-                                        <button
-                                            onClick={() => setShowBreakdown(v => !v)}
-                                            className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 mt-0.5 transition-colors"
-                                        >
-                                            {showBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                            {showBreakdown ? 'Hide' : 'View'} breakdown
-                                        </button>
-                                    )}
-                                </div>
-                                <div className="text-right">
-                                    <div className="flex items-center gap-1.5 justify-end text-neutral-400 mb-0.5">
-                                        <Wallet className="w-3 h-3" />
-                                        <span className="text-[10px] uppercase font-bold tracking-wider">Wallet</span>
-                                    </div>
-                                    <p className={`text-sm font-bold ${walletBalance >= displayTotal ? 'text-amber-500' : 'text-red-400'}`}>
-                                        ₹{walletBalance.toFixed(2)}
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* ── Price Breakdown Panel ── */}
-                            <AnimatePresence>
-                                {showBreakdown && quote && (
-                                    <motion.div
-                                        initial={{ opacity: 0, height: 0 }}
-                                        animate={{ opacity: 1, height: 'auto' }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        className="overflow-hidden"
-                                    >
-                                        <div className="bg-neutral-900 rounded-xl p-3 space-y-2 border border-neutral-800">
-                                            {/* Per-seat breakdown */}
-                                            {quote.seats.map((s: SeatPriceBreakdown) => (
-                                                <div key={s.seatId} className="text-xs space-y-1">
-                                                    <div className="flex justify-between text-neutral-400 font-semibold">
-                                                        <span>{s.seatType} seat</span>
-                                                        <span>Base ₹{s.basePrice.toFixed(0)}</span>
-                                                    </div>
-                                                    {s.appliedRules.map((r, i) => (
-                                                        <div key={i} className="flex justify-between text-amber-400/80 pl-2">
-                                                            <span>{r.name}</span>
-                                                            <span>{r.effect}</span>
-                                                        </div>
-                                                    ))}
-                                                    {s.membershipDiscountAmount > 0 && (
-                                                        <div className={`flex justify-between pl-2 ${MEMBERSHIP_COLORS[membershipTier]}`}>
-                                                            <span>{membershipTier} membership</span>
-                                                            <span>−₹{s.membershipDiscountAmount.toFixed(2)}</span>
+                                            {quote && (appliedRuleNames.length > 0 || couponSummary) && (
+                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                                    {appliedRuleNames.length > 0 && (
+                                                        <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                                                            Offers applied: {appliedRuleNames.slice(0, 3).join(', ')}
+                                                            {appliedRuleNames.length > 3 && ' + more'}
                                                         </div>
                                                     )}
-                                                    <div className="flex justify-between text-white font-bold border-t border-neutral-800 pt-1">
-                                                        <span>Seat total</span>
-                                                        <span>₹{s.finalPrice.toFixed(0)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {/* Coupon row */}
-                                            {quote.couponDiscount > 0 && (
-                                                <div className="flex justify-between text-xs text-amber-400 border-t border-neutral-800 pt-2">
-                                                    <span>Coupon ({quote.coupon?.code})</span>
-                                                    <span>−₹{quote.couponDiscount.toFixed(2)}</span>
+                                                    {couponSummary && (
+                                                        <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                                                            Coupon {couponSummary.code} ({couponSummary.label}) − You save ₹{couponSummary.amountSaved.toFixed(0)}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
-                                            <div className="flex justify-between text-sm font-bold border-t border-neutral-700 pt-2">
-                                                <span>Total</span>
-                                                <span className="text-amber-400">₹{quote.total.toFixed(0)}</span>
-                                            </div>
+                                            {selectedSeatDetails.length > 0 && (
+                                                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-300">
+                                                    <span className="text-neutral-500">Seats:</span>
+                                                    {selectedSeatDetails.map(seat => (
+                                                        <span
+                                                            key={seat.id}
+                                                            className="px-2 py-1 rounded-full bg-white/5 border border-white/10"
+                                                        >
+                                                            {seat.row}{seat.number}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                                        <div className="text-right">
+                                            <p className="text-sm font-bold text-white">{selectedSeats.length} Seats</p>
+                                            <p className="text-xs text-neutral-500">Selected</p>
+                                        </div>
+                                    </div>
+                                </div>
 
-                            {/* ── Action Buttons ── */}
-                            {!lockExpiry ? (
                                 <button
                                     onClick={handleLock}
-                                    disabled={isBooking || quoteLoading}
-                                    className="h-12 w-full rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                                    disabled={quoteLoading || isBooking}
+                                    className="w-full md:w-auto h-14 px-12 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold text-lg shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
                                 >
-                                    Proceed to Payment
+                                    {isBooking ? 'Processing...' : 'Confirm Seats'}
                                 </button>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-3">
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                {/* Coupon Input */}
+                                <div className="flex gap-3">
+                                    <div className="relative flex-1">
+                                        <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Enter coupon code"
+                                            value={couponInput}
+                                            onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                                            className="w-full h-12 pl-11 pr-4 rounded-xl bg-neutral-950 border border-white/10 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleApplyCoupon}
+                                        disabled={!couponInput}
+                                        className="h-12 px-6 rounded-xl bg-neutral-800 border border-white/10 text-white font-bold hover:bg-neutral-700 disabled:opacity-50 transition-colors"
+                                    >
+                                        Apply
+                                    </button>
+                                </div>
+
+                                {appliedCoupon && (
+                                    <div className={cn(
+                                        "flex items-center gap-2 p-3 rounded-xl text-sm font-medium",
+                                        couponError ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
+                                    )}>
+                                        {couponError ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                                        {couponError || `Coupon '${appliedCoupon}' applied! You saved ₹${quote?.couponDiscount.toFixed(0)}`}
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-4">
                                     <button
                                         onClick={() => handleBooking('ONLINE')}
                                         disabled={isBooking}
-                                        className="h-12 rounded-xl bg-neutral-800 text-white font-bold disabled:opacity-50 flex items-center justify-center gap-2 border border-white/5 hover:bg-neutral-700"
+                                        className="h-14 rounded-2xl bg-neutral-800 border border-white/10 hover:bg-neutral-700 text-white font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                                     >
-                                        <CreditCard className="w-4 h-4" />
+                                        <CreditCard className="w-5 h-5" />
                                         Pay Online
                                     </button>
                                     <button
                                         onClick={() => handleBooking('WALLET')}
-                                        disabled={isBooking || walletBalance < displayTotal}
-                                        className="h-12 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500 flex items-center justify-center gap-2"
+                                        disabled={walletBalance < displayTotal || isBooking}
+                                        className="h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500"
                                     >
-                                        <Wallet className="w-4 h-4" />
-                                        Pay with Wallet
+                                        <Wallet className="w-5 h-5" />
+                                        <span>{isBooking ? 'Processing...' : `Pay with Wallet (₹${walletBalance})`}</span>
                                     </button>
                                 </div>
-                            )}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {selectedSeats.length === 0 && (
-                    <div className="p-5 text-center">
-                        <p className="text-sm text-neutral-500">Select seats to continue</p>
+                            </div>
+                        )}
                     </div>
-                )}
+                </motion.div>
             </div>
         </div>
     );
