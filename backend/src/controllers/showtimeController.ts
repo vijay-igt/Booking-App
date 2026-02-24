@@ -322,6 +322,50 @@ export const updateShowtime = async (req: Request, res: Response): Promise<void>
         }
 
         await showtime.update({ movieId, screenId, startTime, endTime, tierPrices, occupancyThreshold });
+
+        const bookings = await Booking.findAll({
+            where: { showtimeId: showtime.id, status: 'confirmed' }
+        });
+
+        if (bookings.length > 0) {
+            const updatedShowtime = await Showtime.findByPk(showtime.id, {
+                include: [
+                    { model: Movie },
+                    { model: Screen, include: [Theater] }
+                ]
+            });
+
+            const movieTitle = updatedShowtime?.movie?.title || 'your movie';
+            const theaterName = updatedShowtime?.screen?.theater?.name || updatedShowtime?.screen?.name || 'the theater';
+            const start = updatedShowtime ? new Date(updatedShowtime.startTime) : null;
+            const startTimeStr = start
+                ? start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+            const startDateStr = start
+                ? start.toLocaleDateString([], { month: 'short', day: 'numeric' })
+                : '';
+
+            const producer = await getProducer();
+            if (producer) {
+                const title = 'Showtime updated';
+                const message = `Your showtime for ${movieTitle} at ${theaterName} is now scheduled for ${startDateStr} at ${startTimeStr}. Please review your booking details.`;
+
+                const messages = bookings.map(b => ({
+                    value: JSON.stringify({
+                        userId: b.userId,
+                        title,
+                        message,
+                        type: 'info',
+                    }),
+                }));
+
+                await producer.send({
+                    topic: 'single-notifications',
+                    messages,
+                });
+            }
+        }
+
         res.json(showtime);
     } catch (error) {
         console.error('Error updating showtime:', error);

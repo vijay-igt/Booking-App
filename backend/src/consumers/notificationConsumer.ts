@@ -131,6 +131,26 @@ export const startNotificationConsumer = async () => {
                         console.log(`[Consumer] Created booking notification for user ${data.userId}`);
                         sendNotificationToUser(data.userId, { type: 'NOTIFICATION_RECEIVED', title: 'Booking Confirmed!' });
                         await sendFcmPush(data.userId, 'Booking Confirmed!', message);
+                    } else if (topic === 'booking-events' && data.type === 'BOOKING_CANCELLED_ADMIN') {
+                        const showtime = await Showtime.findByPk(data.showtimeId, {
+                            include: [{ model: Movie }]
+                        });
+
+                        const movieTitle = showtime?.movie?.title || 'Unknown Movie';
+                        const startTime = showtime ? new Date(showtime.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                        const startDate = showtime ? new Date(showtime.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+                        const message = `Your booking for ${movieTitle} on ${startDate} at ${startTime} was cancelled by the admin. Your payment has been refunded to your wallet.`;
+
+                        await Notification.create({
+                            userId: data.userId,
+                            title: 'Booking Cancelled',
+                            message,
+                            type: 'info',
+                            isRead: false
+                        });
+                        console.log(`[Consumer] Created admin booking cancellation notification for user ${data.userId}`);
+                        sendNotificationToUser(data.userId, { type: 'NOTIFICATION_RECEIVED', title: 'Booking Cancelled' });
+                        await sendFcmPush(data.userId, 'Booking Cancelled', message);
                     } else if (topic === 'wallet-updates' && data.type === 'TOPUP_APPROVED') {
                         const message = `Your top-up request has been approved. Your new balance is $${data.newBalance}.`;
                         await Notification.create({

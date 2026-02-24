@@ -46,6 +46,19 @@ export class Booking extends Model {
     })
     declare status: string;
 
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    })
+    declare refunded: boolean;
+
+    @Column({
+        type: DataType.STRING,
+        allowNull: true,
+    })
+    declare cancellationReason: string | null;
+
     @HasMany(() => Ticket)
     declare tickets: Ticket[];
 }

@@ -11,6 +11,7 @@ import { User } from '../models/User';
 import { Wallet } from '../models/Wallet';
 import { Notification } from '../models/Notification';
 import { sendNotificationToSuperAdmins } from '../services/websocketService';
+import { getProducer } from '../config/kafkaClient';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/database';
 import { Transaction } from '../models/Transaction';
@@ -245,31 +246,178 @@ export const getAllShowtimes = async (req: Request, res: Response): Promise<void
 };
 
 export const deleteShowtime = async (req: Request, res: Response): Promise<void> => {
+    const transaction = await sequelize.transaction();
     try {
         const { id } = req.params;
         const user = req.user!;
 
         const showtime = await Showtime.findByPk(parseInt(String(id)), {
-            include: [{
-                model: Screen,
-                include: [Theater]
-            }]
+            include: [
+                {
+                    model: Screen,
+                    include: [{
+                        model: Theater,
+                        include: [User],
+                    }]
+                },
+                {
+                    model: Movie
+                }
+            ],
+            transaction,
         });
 
         if (!showtime) {
+            await transaction.rollback();
             res.status(404).json({ message: 'Showtime not found' });
             return;
         }
 
         if (user.role !== 'super_admin' && showtime.screen?.theater?.ownerId !== user.id) {
+            await transaction.rollback();
             res.status(403).json({ message: 'Access denied. You do not own this showtime.' });
             return;
         }
 
-        await Booking.destroy({ where: { showtimeId: showtime.id } });
-        await showtime.destroy();
-        res.json({ message: 'Showtime deleted successfully' });
+        const bookings = await Booking.findAll({
+            where: { showtimeId: showtime.id },
+            include: [{ model: User }],
+            transaction,
+        });
+
+        const refundedUserIds: number[] = [];
+
+        if (bookings.length > 0) {
+            const theaterOwner = showtime.screen?.theater?.owner ?? null;
+
+            for (const booking of bookings) {
+                let bookingUser: User | null = booking.user;
+                if (!bookingUser) {
+                    bookingUser = await User.findByPk(booking.userId, { transaction });
+                    if (!bookingUser) {
+                        console.error(`[deleteShowtime] Booking user not found for booking ${booking.id}, skipping refund but deleting booking.`);
+
+                        await Ticket.destroy({
+                            where: { bookingId: booking.id },
+                            transaction,
+                        });
+                        await booking.destroy({ transaction });
+                        continue;
+                    }
+                }
+
+                const totalAmount = Number(booking.totalAmount);
+                const commissionRate = theaterOwner ? (Number(theaterOwner.commissionRate) || 10) : 0;
+                const commissionAmount = (totalAmount * commissionRate) / 100;
+                const ownerAmount = theaterOwner ? (totalAmount - commissionAmount) : 0;
+
+                booking.status = 'cancelled';
+                booking.refunded = true;
+                booking.cancellationReason = 'showtime_cancelled';
+                await booking.save({ transaction });
+
+                if (theaterOwner && ownerAmount > 0) {
+                    let ownerWallet = await Wallet.findOne({ where: { userId: theaterOwner.id, type: 'owner' }, transaction });
+                    if (ownerWallet) {
+                        ownerWallet.balance = Number(ownerWallet.balance) - ownerAmount;
+                        await ownerWallet.save({ transaction });
+                        await Transaction.create({
+                            walletId: ownerWallet.id,
+                            userId: theaterOwner.id,
+                            type: 'DEBIT',
+                            amount: ownerAmount,
+                            description: `Showtime cancellation debit for booking ID: ${booking.id}`,
+                        }, { transaction });
+                    }
+                }
+
+                if (commissionAmount > 0) {
+                    let platformWallet = await Wallet.findOne({ where: { type: 'platform' }, transaction });
+                    if (platformWallet) {
+                        platformWallet.balance = Number(platformWallet.balance) - commissionAmount;
+                        await platformWallet.save({ transaction });
+                        await Transaction.create({
+                            walletId: platformWallet.id,
+                            userId: platformWallet.userId,
+                            type: 'DEBIT',
+                            amount: commissionAmount,
+                            description: `Showtime cancellation commission debit for booking ID: ${booking.id}`,
+                        }, { transaction });
+                    }
+                }
+
+                let userWallet = await Wallet.findOne({ where: { userId: bookingUser.id, type: 'user' }, transaction });
+                if (!userWallet) {
+                    userWallet = await Wallet.create({ userId: bookingUser.id, type: 'user', balance: 0 }, { transaction });
+                }
+                userWallet.balance = Number(userWallet.balance) + totalAmount;
+                await userWallet.save({ transaction });
+                await Transaction.create({
+                    walletId: userWallet.id,
+                    userId: bookingUser.id,
+                    type: 'CREDIT',
+                    amount: totalAmount,
+                    description: `Showtime cancellation refund for booking ID: ${booking.id}`,
+                }, { transaction });
+
+                const userRecord = await User.findByPk(bookingUser.id, { transaction });
+                if (userRecord) {
+                    userRecord.walletBalance = userWallet.balance;
+                    await userRecord.save({ transaction });
+                }
+
+                await Ticket.destroy({
+                    where: { bookingId: booking.id },
+                    transaction,
+                });
+                await booking.destroy({ transaction });
+
+                if (!refundedUserIds.includes(bookingUser.id)) {
+                    refundedUserIds.push(bookingUser.id);
+                }
+            }
+        }
+
+        await showtime.destroy({ transaction });
+        await transaction.commit();
+
+        if (bookings.length > 0) {
+            try {
+                const producer = await getProducer();
+                if (producer) {
+                    const movieTitle = showtime.movie?.title || 'your movie';
+                    const theaterName = showtime.screen?.theater?.name || showtime.screen?.name || 'the theater';
+                    const start = new Date(showtime.startTime);
+                    const startTimeStr = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const startDateStr = start.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+                    const title = 'Showtime cancelled';
+                    const message = `Your showtime for ${movieTitle} at ${theaterName} on ${startDateStr} at ${startTimeStr} has been cancelled. Your payment has been refunded to your wallet.`;
+
+                    const messages = refundedUserIds.map((userId: number) => ({
+                        value: JSON.stringify({
+                            userId,
+                            title,
+                            message,
+                            type: 'warning',
+                        }),
+                    }));
+
+                    if (messages.length > 0) {
+                        await producer.send({
+                            topic: 'single-notifications',
+                            messages,
+                        });
+                    }
+                }
+            } catch (notifyError) {
+                console.error('[deleteShowtime] Failed to send cancellation notifications:', notifyError);
+            }
+        }
+
+        res.json({ message: 'Showtime deleted, bookings cancelled and refunded.' });
     } catch (error) {
+        await transaction.rollback();
         res.status(500).json({ message: 'Error deleting showtime', error });
     }
 };
@@ -310,6 +458,10 @@ export const getAllBookings = async (req: Request, res: Response): Promise<void>
 
 export const deleteBooking = async (req: Request, res: Response): Promise<void> => {
     const transaction = await sequelize.transaction();
+    let notificationUserId: number | null = null;
+    let notificationShowtimeId: number | null = null;
+    let wasRefunded = false;
+
     try {
         const { id } = req.params;
         const booking = await Booking.findByPk(id, {
@@ -317,17 +469,12 @@ export const deleteBooking = async (req: Request, res: Response): Promise<void> 
                 {
                     model: Showtime,
                     include: [
-                        {
-                            model: Movie,
-                        },
-                        {
-                            model: Theater,
-                            include: [User], // Include User to get owner details
-                        },
+                        { model: Movie },
+                        { model: Screen, include: [Theater] },
                     ],
                 },
                 {
-                    model: User, // Include User to get booking user details
+                    model: User,
                 },
             ],
             transaction,
@@ -339,59 +486,61 @@ export const deleteBooking = async (req: Request, res: Response): Promise<void> 
             return;
         }
 
-        // Update booking status to 'cancelled'
+        const totalAmount = Number(booking.totalAmount);
+        const showtime = booking.showtime;
+        const theaterOwner = showtime?.screen?.theater?.owner ?? null;
+
+        let bookingUser: User | null = booking.user;
+        if (!bookingUser) {
+            bookingUser = await User.findByPk(booking.userId, { transaction });
+        }
+
         booking.status = 'cancelled';
         await booking.save({ transaction });
 
-        // Financial reversal and refund logic
-        const totalAmount = Number(booking.totalAmount);
-        const showtime = booking.showtime;
-        const theaterOwner = showtime?.screen?.theater?.owner;
-        const bookingUser = booking.user;
-
-        if (!showtime || !theaterOwner || !bookingUser) {
-            await transaction.rollback();
-            res.status(500).json({ message: 'Associated showtime, owner, or user not found' });
-            return;
-        }
-
-        const commissionRate = Number(theaterOwner.commissionRate) || 10;
-        const commissionAmount = (totalAmount * commissionRate) / 100;
-        const ownerAmount = totalAmount - commissionAmount;
-
-        // Check if cancellation is before showtime for user refund
-        const showtimeStartTime = new Date(showtime.startTime);
+        const showtimeStartTime = showtime ? new Date(showtime.startTime) : null;
         const currentTime = new Date();
-        const isBeforeShowtime = currentTime < showtimeStartTime;
+        const isBeforeShowtime = showtimeStartTime ? currentTime < showtimeStartTime : false;
 
-        // 1. Reverse owner's wallet update
-        let ownerWallet = await Wallet.findOne({ where: { userId: theaterOwner.id, type: 'owner' }, transaction });
-        if (ownerWallet) {
-            ownerWallet.balance = Number(ownerWallet.balance) - ownerAmount;
-            await ownerWallet.save({ transaction });
-            await Transaction.create({
-                walletId: ownerWallet.id,
-                type: 'debit',
-                amount: ownerAmount,
-                description: `Booking cancellation debit for booking ID: ${booking.id}`,
-            }, { transaction });
+        const commissionRate = theaterOwner ? (Number(theaterOwner.commissionRate) || 10) : 0;
+        const commissionAmount = (totalAmount * commissionRate) / 100;
+        const ownerAmount = theaterOwner ? (totalAmount - commissionAmount) : 0;
+
+        if (theaterOwner && ownerAmount > 0) {
+            let ownerWallet = await Wallet.findOne({ where: { userId: theaterOwner.id, type: 'owner' }, transaction });
+            if (ownerWallet) {
+                ownerWallet.balance = Number(ownerWallet.balance) - ownerAmount;
+                await ownerWallet.save({ transaction });
+                await Transaction.create({
+                    walletId: ownerWallet.id,
+                    userId: theaterOwner.id,
+                    type: 'DEBIT',
+                    amount: ownerAmount,
+                    description: `Booking cancellation debit for booking ID: ${booking.id}`,
+                }, { transaction });
+            }
         }
 
-        // 2. Reverse platform's wallet update
-        let platformWallet = await Wallet.findOne({ where: { type: 'platform' }, transaction });
-        if (platformWallet) {
-            platformWallet.balance = Number(platformWallet.balance) - commissionAmount;
-            await platformWallet.save({ transaction });
-            await Transaction.create({
-                walletId: platformWallet.id,
-                type: 'debit',
-                amount: commissionAmount,
-                description: `Booking cancellation commission debit for booking ID: ${booking.id}`,
-            }, { transaction });
+        if (commissionAmount > 0) {
+            let platformWallet = await Wallet.findOne({ where: { type: 'platform' }, transaction });
+            if (platformWallet) {
+                platformWallet.balance = Number(platformWallet.balance) - commissionAmount;
+                await platformWallet.save({ transaction });
+                await Transaction.create({
+                    walletId: platformWallet.id,
+                    userId: platformWallet.userId,
+                    type: 'DEBIT',
+                    amount: commissionAmount,
+                    description: `Booking cancellation commission debit for booking ID: ${booking.id}`,
+                }, { transaction });
+            }
         }
 
-        // 3. Refund user's wallet ONLY if cancellation is before showtime
-        if (isBeforeShowtime) {
+        if (isBeforeShowtime && bookingUser) {
+            booking.refunded = true;
+            booking.cancellationReason = 'admin_cancelled_refunded';
+            await booking.save({ transaction });
+
             let userWallet = await Wallet.findOne({ where: { userId: bookingUser.id, type: 'user' }, transaction });
             if (!userWallet) {
                 userWallet = await Wallet.create({ userId: bookingUser.id, type: 'user', balance: 0 }, { transaction });
@@ -400,20 +549,57 @@ export const deleteBooking = async (req: Request, res: Response): Promise<void> 
             await userWallet.save({ transaction });
             await Transaction.create({
                 walletId: userWallet.id,
-                type: 'credit',
+                userId: bookingUser.id,
+                type: 'CREDIT',
                 amount: totalAmount,
                 description: `Booking cancellation refund for booking ID: ${booking.id}`,
             }, { transaction });
+
+            const userRecord = await User.findByPk(bookingUser.id, { transaction });
+            if (userRecord) {
+                userRecord.walletBalance = userWallet.balance;
+                await userRecord.save({ transaction });
+            }
+
+            wasRefunded = true;
         }
 
-        // Update seat availability by deleting tickets
         await Ticket.destroy({
             where: { bookingId: booking.id },
             transaction,
         });
 
+        notificationUserId = bookingUser?.id ?? null;
+        notificationShowtimeId = showtime?.id ?? null;
+
+        await booking.destroy({ transaction });
+
         await transaction.commit();
-        res.json({ message: 'Booking cancelled successfully' + (isBeforeShowtime ? ' and refunded.' : '.') });
+
+        if (notificationUserId && notificationShowtimeId && wasRefunded) {
+            try {
+                const producer = await getProducer();
+                if (producer) {
+                    await producer.send({
+                        topic: 'booking-events',
+                        messages: [{
+                            value: JSON.stringify({
+                                type: 'BOOKING_CANCELLED_ADMIN',
+                                bookingId: Number(id),
+                                userId: notificationUserId,
+                                showtimeId: notificationShowtimeId,
+                            }),
+                        }],
+                    });
+                }
+            } catch (kafkaError) {
+                console.error('[deleteBooking] Error sending Kafka cancellation event:', kafkaError);
+            }
+        }
+
+        res.json({
+            message: 'Booking cancelled successfully' + (wasRefunded ? ' and refunded.' : '. No refund issued (after showtime or missing user).'),
+        });
     } catch (error) {
         await transaction.rollback();
         console.error('Error cancelling booking:', error);

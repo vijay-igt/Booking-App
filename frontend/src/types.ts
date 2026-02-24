@@ -52,6 +52,8 @@ export interface Booking {
     showtimeId: number;
     totalAmount: number;
     status: string;
+    refunded?: boolean;
+    cancellationReason?: string | null;
     trackingId?: string;
     createdAt: string;
     user?: {

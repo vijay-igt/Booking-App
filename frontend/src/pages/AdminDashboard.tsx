@@ -1096,6 +1096,7 @@ const AdminDashboard: React.FC = () => {
                                                 <th className="px-6 py-4">Showtime</th>
                                                 <th className="px-6 py-4">Amount</th>
                                                 <th className="px-6 py-4">Status</th>
+                                                <th className="px-6 py-4">Refund</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-white/5">
@@ -1129,9 +1130,12 @@ const AdminDashboard: React.FC = () => {
                                                     <td className="px-6 py-4">
                                                         <div className="flex items-center gap-2">
                                                             <span className={cn("px-2 py-1 rounded-md text-xs font-bold uppercase",
-                                                                booking.status === 'CONFIRMED' ? "bg-emerald-500/10 text-emerald-500" :
-                                                                    booking.status === 'CANCELLED' ? "bg-red-500/10 text-red-500" : "bg-white/5 text-neutral-400"
-                                                            )}>{booking.status}</span>
+                                                                booking.status === 'confirmed' || booking.status === 'CONFIRMED'
+                                                                    ? "bg-emerald-500/10 text-emerald-500"
+                                                                    : booking.status === 'cancelled' || booking.status === 'CANCELLED'
+                                                                        ? "bg-red-500/10 text-red-500"
+                                                                        : "bg-white/5 text-neutral-400"
+                                                            )}>{String(booking.status).toUpperCase()}</span>
                                                             <button
                                                                 onClick={() => handleDeleteBooking(booking.id)}
                                                                 className="p-1.5 rounded-lg hover:bg-neutral-800 text-neutral-500 hover:text-red-500 transition-colors ml-2"
@@ -1140,6 +1144,15 @@ const AdminDashboard: React.FC = () => {
                                                                 <Trash2 className="w-4 h-4" />
                                                             </button>
                                                         </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs text-neutral-400">
+                                                        {booking.status === 'cancelled' || booking.status === 'CANCELLED' ? (
+                                                            booking.refunded
+                                                                ? <span className="text-emerald-400 font-bold">Refunded</span>
+                                                                : <span className="text-neutral-500">No refund</span>
+                                                        ) : (
+                                                            <span className="text-neutral-500">—</span>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             ))}

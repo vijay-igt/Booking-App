@@ -20,6 +20,8 @@ interface Booking {
   totalAmount: number;
   createdAt: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+  refunded?: boolean;
+  cancellationReason?: string | null;
   showtime: {
     startTime: string;
     movie: {
@@ -44,26 +46,41 @@ interface Booking {
 const BookingHistory: React.FC = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
   const auth = useAuth();
 
-  useEffect(() => {
+  const fetchBookings = async () => {
     if (!auth?.user) return;
+    try {
+      const res = await api.get(`/bookings/user/${auth.user.id}`);
+      setBookings(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const userId = auth.user.id; // ✅ store in local variable
-
-    (async () => {
-      try {
-        const res = await api.get(`/bookings/user/${userId}`);
-        setBookings(res.data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  useEffect(() => {
+    fetchBookings();
   }, [auth?.user]);
+
+  const handleCancel = async (id: number) => {
+    if (!window.confirm('Are you sure you want to cancel this booking? You will receive a full refund to your wallet.')) return;
+
+    setCancellingId(id);
+    try {
+      await api.put(`/bookings/${id}/cancel`);
+      await fetchBookings();
+      alert('Booking cancelled successfully! The amount has been refunded to your wallet.');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to cancel booking');
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const now = Date.now();
 
@@ -71,7 +88,6 @@ const BookingHistory: React.FC = () => {
     () =>
       bookings.filter(
         b =>
-          b.status !== 'cancelled' &&
           new Date(b.showtime.startTime).getTime() >= now
       ),
     [bookings, now]
@@ -81,7 +97,6 @@ const BookingHistory: React.FC = () => {
     () =>
       bookings.filter(
         b =>
-          b.status !== 'cancelled' &&
           new Date(b.showtime.startTime).getTime() < now
       ),
     [bookings, now]
@@ -250,6 +265,16 @@ const BookingHistory: React.FC = () => {
                             <div className="text-right">
                               <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest">Ticket ID</p>
                               <p className="text-sm font-bold text-white">#TKN-{b.id.toString().padStart(6, '0')}</p>
+                              {b.status === 'cancelled' && (
+                                <div className="mt-2 text-right">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-red-400">Cancelled</p>
+                                  <p className="text-[10px] text-neutral-500">
+                                    {b.refunded
+                                      ? 'Amount refunded to your wallet.'
+                                      : 'No refund issued.'}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -283,7 +308,16 @@ const BookingHistory: React.FC = () => {
                             </p>
                           </div>
 
-                          <div className="flex gap-3">
+                          <div className="flex gap-3 items-center">
+                            {tab === 'upcoming' && b.status === 'confirmed' && (
+                              <button
+                                onClick={() => handleCancel(b.id)}
+                                disabled={cancellingId === b.id}
+                                className="px-6 py-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all duration-300 disabled:opacity-50"
+                              >
+                                {cancellingId === b.id ? 'Cancelling...' : 'Cancel Ticket'}
+                              </button>
+                            )}
                             <ActionIconButton
                               onClick={() => downloadTicket(b.id)}
                               icon={<Download className="w-5 h-5" />}

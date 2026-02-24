@@ -459,8 +459,9 @@ export const cancelUserBooking = async (req: Request, res: Response): Promise<vo
             return;
         }
 
-        // Update booking status to 'cancelled'
         booking.status = 'cancelled';
+        booking.refunded = true;
+        booking.cancellationReason = 'user_cancelled';
         await booking.save({ transaction });
 
         // Financial reversal and refund logic (similar to admin cancellation)
