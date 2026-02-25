@@ -50,12 +50,20 @@ const FoodSelection: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [foodRes, showtimeRes] = await Promise.all([
-                    api.get('/food'),
-                    showtimeId ? api.get(`/showtimes/${showtimeId}`) : Promise.resolve({ data: null })
-                ]);
+                // First get showtime if needed to know theaterId
+                let tId = null;
+                let currentShowtime = null;
+
+                if (showtimeId) {
+                    const res = await api.get(`/showtimes/${showtimeId}`);
+                    currentShowtime = res.data;
+                    tId = currentShowtime?.screen?.theaterId;
+                    setShowtime(currentShowtime);
+                }
+
+                // Fetch food items for this specific theater
+                const foodRes = await api.get(tId ? `/food?theaterId=${tId}` : '/food');
                 setFoodItems(foodRes.data);
-                setShowtime(showtimeRes.data);
             } catch (error) {
                 console.error('Error fetching food data:', error);
                 toast.error('Failed to load food items');

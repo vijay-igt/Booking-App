@@ -142,6 +142,8 @@ const AdminDashboard: React.FC = () => {
     const [requestNotes, setRequestNotes] = useState('');
 
     const [selectedScreenTiers, setSelectedScreenTiers] = useState<ScreenTierSummary[]>([]);
+    const [selectedFoodTheaterId, setSelectedFoodTheaterId] = useState<number | null>(null);
+    const [isUploadingFood, setIsUploadingFood] = useState(false);
 
     // ─── Effects ──────────────────────────────────────────────────────────────
     useEffect(() => {
@@ -154,7 +156,7 @@ const AdminDashboard: React.FC = () => {
         if (currentTab === 'support') fetchAdminTickets();
         if (currentTab === 'food') fetchFoodItems();
         fetchDashboardStats();
-    }, [currentTab, userSearch]);
+    }, [currentTab, userSearch, selectedFoodTheaterId]);
 
     // WebSocket Subscriptions
     useEffect(() => {
@@ -270,7 +272,8 @@ const AdminDashboard: React.FC = () => {
 
     const fetchFoodItems = async () => {
         try {
-            const res = await api.get('/food');
+            const url = selectedFoodTheaterId ? `/food?theaterId=${selectedFoodTheaterId}` : '/food';
+            const res = await api.get(url);
             setFoodItems(res.data);
         } catch (error) {
             console.error(error);
@@ -358,7 +361,7 @@ const AdminDashboard: React.FC = () => {
             setSeatTiers([
                 { name: 'Classic', rows: 5, price: 150 },
                 { name: 'Recliner', rows: 3, price: 250 },
-                { name: 'Premium', rows: 2, price: 400 }                
+                { name: 'Premium', rows: 2, price: 400 }
             ]);
             setSeatCols(10);
         } catch (error: unknown) {
@@ -415,6 +418,28 @@ const AdminDashboard: React.FC = () => {
         } catch (error: unknown) {
             console.error('File upload failed:', error);
             alert('File upload failed');
+        }
+    };
+
+    const handleFoodFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('image', file);
+        setIsUploadingFood(true);
+
+        try {
+            const response = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-type' }
+            });
+            const url = response.data.url;
+            setNewFoodItem({ ...newFoodItem, imageUrl: url });
+        } catch (error: unknown) {
+            console.error('Food image upload failed:', error);
+            alert('Image upload failed');
+        } finally {
+            setIsUploadingFood(false);
         }
     };
 
@@ -586,10 +611,11 @@ const AdminDashboard: React.FC = () => {
 
     const handleSaveFoodItem = async () => {
         try {
+            const payload = { ...newFoodItem, theaterId: selectedFoodTheaterId };
             if (editingFoodId) {
-                await api.put(`/food/${editingFoodId}`, newFoodItem);
+                await api.put(`/food/${editingFoodId}`, payload);
             } else {
-                await api.post('/food', newFoodItem);
+                await api.post('/food', payload);
             }
             setShowFoodModal(false);
             setNewFoodItem({ name: '', description: '', price: 0, category: 'Snacks', imageUrl: '', isVeg: true, calories: 0, allergens: '' });
@@ -1217,7 +1243,19 @@ const AdminDashboard: React.FC = () => {
                         {currentTab === 'food' && (
                             <div>
                                 <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-lg font-bold">Food & Snacks Menu</h3>
+                                    <div className="flex items-center gap-4">
+                                        <h3 className="text-lg font-bold whitespace-nowrap">Food Menu</h3>
+                                        <select
+                                            value={selectedFoodTheaterId || ''}
+                                            onChange={(e) => setSelectedFoodTheaterId(e.target.value ? Number(e.target.value) : null)}
+                                            className="bg-neutral-900 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-emerald-500/50 outline-none"
+                                        >
+                                            <option value="">All Theaters</option>
+                                            {theaters.map(t => (
+                                                <option key={t.id} value={t.id}>{t.name} ({t.location})</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <button
                                         onClick={() => { setEditingFoodId(null); setNewFoodItem({ name: '', description: '', price: 0, category: 'Snacks', imageUrl: '', isVeg: true, calories: 0, allergens: '' }); setShowFoodModal(true); }}
                                         className="px-4 py-2 rounded-xl bg-emerald-500 text-neutral-950 font-bold flex items-center gap-2 hover:bg-emerald-400 transition-colors"
@@ -1346,7 +1384,7 @@ const AdminDashboard: React.FC = () => {
                                                     <p className="text-sm text-neutral-300 leading-relaxed">{selectedAdminTicket.message}</p>
                                                 </div>
 
-                                            {selectedAdminTicket.replies?.map((r: AdminTicketReply) => {
+                                                {selectedAdminTicket.replies?.map((r: AdminTicketReply) => {
                                                     const isAdminSender = r.sender?.role === 'admin';
                                                     const senderName = r.sender?.name ?? 'Support';
 
@@ -1540,9 +1578,24 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                 </div>
                                 <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Trailer URL (YouTube embed or share link)" value={newMovie.trailerUrl || ''} onChange={e => setNewMovie({ ...newMovie, trailerUrl: e.target.value })} />
-                                <div className="grid grid-cols-2 gap-4">
-                                    <input className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Language" value={newMovie.language} onChange={e => setNewMovie({ ...newMovie, language: e.target.value })} />
-                                    <input className="p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Rating (e.g. PG-13)" value={newMovie.rating} onChange={e => setNewMovie({ ...newMovie, rating: e.target.value })} />
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Language</label>
+                                        <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Language" value={newMovie.language} onChange={e => setNewMovie({ ...newMovie, language: e.target.value })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Rating</label>
+                                        <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="e.g. PG-13" value={newMovie.rating} onChange={e => setNewMovie({ ...newMovie, rating: e.target.value })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Release Date</label>
+                                        <input
+                                            type="date"
+                                            className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white [color-scheme:dark]"
+                                            value={newMovie.releaseDate}
+                                            onChange={e => setNewMovie({ ...newMovie, releaseDate: e.target.value })}
+                                        />
+                                    </div>
                                 </div>
                                 <button onClick={handleSaveMovie} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Save Movie</button>
                             </div>
@@ -1746,20 +1799,39 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Image URL</label>
-                                    <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Image URL" value={newFoodItem.imageUrl} onChange={e => setNewFoodItem({ ...newFoodItem, imageUrl: e.target.value })} />
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Image</label>
+                                    <div className="flex gap-4 items-start">
+                                        <div className="flex-1">
+                                            <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white mb-2" placeholder="Image URL" value={newFoodItem.imageUrl} onChange={e => setNewFoodItem({ ...newFoodItem, imageUrl: e.target.value })} />
+                                            <div className="flex items-center gap-2">
+                                                <input type="file" id="foodImage" className="hidden" onChange={handleFoodFileUpload} accept="image/*" />
+                                                <label htmlFor="foodImage" className={cn(
+                                                    "px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-neutral-400 cursor-pointer hover:bg-white/10 transition-all",
+                                                    isUploadingFood && "opacity-50 cursor-wait"
+                                                )}>
+                                                    {isUploadingFood ? 'Uploading...' : 'Upload Image'}
+                                                </label>
+                                                {newFoodItem.imageUrl && <span className="text-[10px] text-emerald-500 font-bold">Image ready</span>}
+                                            </div>
+                                        </div>
+                                        {newFoodItem.imageUrl && (
+                                            <div className="w-20 h-20 rounded-xl bg-neutral-950 border border-white/10 overflow-hidden shrink-0">
+                                                <img src={newFoodItem.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Type</label>
                                         <div className="flex gap-2">
-                                            <button 
+                                            <button
                                                 onClick={() => setNewFoodItem({ ...newFoodItem, isVeg: true })}
                                                 className={cn("flex-1 py-2 rounded-lg text-xs font-bold border transition-colors", newFoodItem.isVeg ? "bg-green-500/20 border-green-500 text-green-500" : "bg-neutral-950 border-white/10 text-neutral-500")}
                                             >
                                                 VEG
                                             </button>
-                                            <button 
+                                            <button
                                                 onClick={() => setNewFoodItem({ ...newFoodItem, isVeg: false })}
                                                 className={cn("flex-1 py-2 rounded-lg text-xs font-bold border transition-colors", !newFoodItem.isVeg ? "bg-red-500/20 border-red-500 text-red-500" : "bg-neutral-950 border-white/10 text-neutral-500")}
                                             >
@@ -1775,6 +1847,20 @@ const AdminDashboard: React.FC = () => {
                                 <div>
                                     <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Allergens</label>
                                     <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="e.g. Milk, Gluten" value={newFoodItem.allergens} onChange={e => setNewFoodItem({ ...newFoodItem, allergens: e.target.value })} />
+                                </div>
+                                <div className="border-t border-white/5 pt-4">
+                                    <label className="block text-xs font-bold text-neutral-500 mb-2 uppercase">Theater Association</label>
+                                    <select
+                                        className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white"
+                                        value={(newFoodItem as any).theaterId || ''}
+                                        onChange={e => setNewFoodItem({ ...newFoodItem, theaterId: e.target.value ? Number(e.target.value) : null } as any)}
+                                    >
+                                        <option value="">Global / No Theater</option>
+                                        {theaters.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name} ({t.location})</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[10px] text-neutral-500 mt-2">Associate this item with a specific theater or leave Global.</p>
                                 </div>
                                 <button onClick={handleSaveFoodItem} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold mt-4">Save Item</button>
                             </div>

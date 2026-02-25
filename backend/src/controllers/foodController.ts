@@ -3,7 +3,12 @@ import { FoodItem } from '../models/FoodItem';
 
 export const getFoodItems = async (req: Request, res: Response): Promise<void> => {
     try {
-        const foodItems = await FoodItem.findAll();
+        const { theaterId } = req.query;
+        let whereClause: any = {};
+        if (theaterId) {
+            whereClause.theaterId = theaterId;
+        }
+        const foodItems = await FoodItem.findAll({ where: whereClause });
         res.json(foodItems);
     } catch (error) {
         console.error('Error fetching food items:', error);
@@ -13,7 +18,10 @@ export const getFoodItems = async (req: Request, res: Response): Promise<void> =
 
 export const createFoodItem = async (req: Request, res: Response): Promise<void> => {
     try {
-        const foodItem = await FoodItem.create(req.body);
+        const { name, description, price, category, imageUrl, isVeg, calories, allergens, theaterId } = req.body;
+        const foodItem = await FoodItem.create({
+            name, description, price, category, imageUrl, isVeg, calories, allergens, theaterId
+        });
         res.status(201).json(foodItem);
     } catch (error) {
         console.error('Error creating food item:', error);

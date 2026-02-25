@@ -211,3 +211,15 @@ export interface Coupon {
     isActive: boolean;
     createdAt: string;
 }
+export interface FoodItem {
+    id: number;
+    name: string;
+    description: string;
+    price: number;
+    category: string;
+    imageUrl: string;
+    isVeg: boolean;
+    calories: number;
+    allergens: string;
+    theaterId?: number | null;
+}

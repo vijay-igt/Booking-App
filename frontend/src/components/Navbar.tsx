@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import {
     Film,
@@ -27,7 +27,8 @@ const Navbar: React.FC = () => {
     const navigate = useNavigate();
     const [isScrolled, setIsScrolled] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
     const [selectedLocation, setSelectedLocation] = useState(() => {
         return localStorage.getItem('selectedLocation') || 'Mumbai';
     });
@@ -51,6 +52,11 @@ const Navbar: React.FC = () => {
     }, []);
 
     // Sync location to localStorage
+    useEffect(() => {
+        const query = searchParams.get('search') || '';
+        setSearchQuery(query);
+    }, [searchParams]);
+
     useEffect(() => {
         localStorage.setItem('selectedLocation', selectedLocation);
     }, [selectedLocation]);
@@ -138,12 +144,26 @@ const Navbar: React.FC = () => {
         navigate('/login');
     };
 
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setSearchQuery(val);
+
+        if (location.pathname !== '/') {
+            navigate(`/?search=${encodeURIComponent(val)}`, { replace: true });
+        } else {
+            if (val) {
+                setSearchParams({ search: val }, { replace: true });
+            } else {
+                const params = new URLSearchParams(searchParams);
+                params.delete('search');
+                setSearchParams(params, { replace: true });
+            }
+        }
+    };
+
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        if (searchQuery.trim()) {
-            // Implement search navigation or modal here
-            console.log('Searching for:', searchQuery);
-        }
+        // The change handler already handles navigation/sync
     };
 
     const navLinks = [
@@ -287,9 +307,9 @@ const Navbar: React.FC = () => {
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 group-focus-within:text-emerald-500 transition-colors" />
                                 <input
                                     type="text"
-                                    placeholder="Search movies..."
+                                    placeholder="Find a movie..."
                                     value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onChange={handleSearchChange}
                                     className="h-10 w-64 rounded-full bg-white/5 border border-white/10 pl-10 pr-4 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-emerald-500/50 focus:bg-neutral-900 focus:w-80 transition-all duration-300"
                                 />
                             </form>
