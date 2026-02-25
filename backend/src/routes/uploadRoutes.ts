@@ -3,6 +3,29 @@ import { upload } from '../utils/upload';
 
 const router = Router();
 
+/**
+ * @openapi
+ * /api/upload:
+ *   post:
+ *     tags:
+ *       - Upload
+ *     summary: Upload an image to Cloudinary
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Image uploaded successfully
+ *       400:
+ *         description: No file uploaded
+ */
 router.post('/', upload.single('image'), (req: Request, res: Response) => {
     try {
         const file = (req as any).file;

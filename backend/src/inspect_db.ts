@@ -3,6 +3,8 @@ import { sequelize } from './config/database';
 import { Wallet } from './models/Wallet';
 import { Transaction } from './models/Transaction';
 import { User } from './models/User';
+import { Movie } from './models/Movie';
+import { Theater } from './models/Theater';
 
 const inspect = async () => {
     try {
@@ -20,6 +22,14 @@ const inspect = async () => {
         const users = await User.findAll({ where: { role: 'super_admin' } });
         console.log('--- SUPER ADMINS ---');
         users.forEach(u => console.log(JSON.stringify(u.toJSON())));
+
+        const movies = await Movie.findAll({ limit: 5 });
+        console.log('--- MOVIES ---');
+        movies.forEach(m => console.log(JSON.stringify(m.toJSON())));
+
+        const theaters = await Theater.findAll({ limit: 5 });
+        console.log('--- THEATERS ---');
+        theaters.forEach(t => console.log(JSON.stringify(t.toJSON())));
 
     } catch (e) {
         console.error(e);

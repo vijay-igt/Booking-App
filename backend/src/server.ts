@@ -31,6 +31,8 @@ import { startWalletConsumer } from './consumers/walletConsumer';
 import { startAnalyticsConsumer } from './consumers/analyticsConsumer';
 import { seedAdmin } from './seedAdmin';
 import { initializeWebSocket } from './services/websocketService';
+import swaggerUi from 'swagger-ui-express';
+import { specs } from './config/swaggerConfig';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,7 +45,7 @@ const corsOptions: cors.CorsOptions = {
             callback(null, true);
             return;
         }
-        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin) || origin.includes(`localhost:${PORT}`)) {
             callback(null, true);
             return;
         }
@@ -91,6 +93,13 @@ app.use('/api/users', userRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/food', foodRoutes);
+
+// Swagger Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+    explorer: true,
+    customCss: '.swagger-ui .topbar { display: none }', // Hide topbar for cleaner look
+    customSiteTitle: "CineVerse API Docs"
+}));
 
 // Google OAuth routes
 app.get('/auth/google',
