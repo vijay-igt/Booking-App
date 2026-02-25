@@ -71,6 +71,11 @@ router.delete('/theaters/:id', deleteTheater);
 
 /**
  * @openapi
+ * /api/admin/screens:
+ *   post:
+ *     tags:
+ *       - Admin
+ *     summary: Create a new screen
  *     security:
  *       - bearerAuth: []
  *     requestBody:

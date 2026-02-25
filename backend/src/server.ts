@@ -38,17 +38,36 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 const rawOrigins = process.env.FRONTEND_URL || '';
-const allowedOrigins = rawOrigins.split(',').map(origin => origin.trim()).filter(Boolean);
+const allowedOrigins = rawOrigins.split(',')
+    .map(origin => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+// Add backend's own URL to allowed origins for Swagger UI
+if (process.env.RENDER_EXTERNAL_URL) {
+    allowedOrigins.push(process.env.RENDER_EXTERNAL_URL.replace(/\/$/, ''));
+}
+
 const corsOptions: cors.CorsOptions = {
     origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) {
             callback(null, true);
             return;
         }
-        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin) || origin.includes(`localhost:${PORT}`)) {
+
+        const normalizedOrigin = origin.replace(/\/$/, '');
+
+        if (
+            allowedOrigins.length === 0 ||
+            allowedOrigins.includes(normalizedOrigin) ||
+            normalizedOrigin.includes('localhost') ||
+            normalizedOrigin.includes('127.0.0.1')
+        ) {
             callback(null, true);
             return;
         }
+
+        console.error(`[CORS] Request from blocked origin: ${origin}. Allowed:`, allowedOrigins);
         callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
