@@ -191,6 +191,30 @@ export const getShowtimesByMovie = async (req: Request, res: Response): Promise<
     }
 };
 
+export const getShowtimeById = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const showtime = await Showtime.findByPk(id, {
+            include: [
+                { model: Movie },
+                {
+                    model: Screen,
+                    include: [Theater]
+                }
+            ]
+        });
+
+        if (!showtime) {
+            res.status(404).json({ message: 'Showtime not found' });
+            return;
+        }
+
+        res.json(showtime);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching showtime details', error });
+    }
+};
+
 export const getShowtimeSeats = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id as string);

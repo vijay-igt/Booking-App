@@ -15,6 +15,8 @@ import { getProducer } from '../config/kafkaClient';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/database';
 import { Transaction } from '../models/Transaction';
+import { BookingFoodItem } from '../models/BookingFoodItem';
+import { FoodItem } from '../models/FoodItem';
 
 const internalGenerateSeats = async (screenId: number, layout: any) => {
     const { tiers, columns } = layout;
@@ -444,6 +446,10 @@ export const getAllBookings = async (req: Request, res: Response): Promise<void>
                             }]
                         }
                     ]
+                },
+                {
+                    model: BookingFoodItem,
+                    include: [FoodItem]
                 }
             ],
             order: [['createdAt', 'DESC']]
@@ -470,7 +476,7 @@ export const deleteBooking = async (req: Request, res: Response): Promise<void> 
                     model: Showtime,
                     include: [
                         { model: Movie },
-                        { model: Screen, include: [Theater] },
+                        { model: Screen, include: [{ model: Theater, include: [User] }] },
                     ],
                 },
                 {

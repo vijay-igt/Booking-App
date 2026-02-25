@@ -42,7 +42,75 @@ const SeatSelection: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Pricing state
+    // Food selection state
+    const [selectedFood, setSelectedFood] = useState<any[]>([]);
+    const [foodTotal, setFoodTotal] = useState(0);
+
+    useEffect(() => {
+        if (location.state?.fromFoodSelection) {
+            setSelectedSeats(location.state.selectedSeats || []);
+            setSelectedFood(location.state.foodItems || []);
+            setFoodTotal(location.state.totalFoodPrice || 0);
+            if (location.state.lockExpiry) {
+                setLockExpiry(location.state.lockExpiry);
+            }
+            if (location.state.bookingSubmitted) {
+                bookingSubmittedRef.current = true;
+            }
+        }
+    }, [location.state]);
+
+    // Handle auto-restore and lock for pending booking
+    useEffect(() => {
+        if (!auth.token || !showtimeId || loading) return;
+
+        const pending = localStorage.getItem('pendingBooking');
+        if (pending) {
+            try {
+                const { showtimeId: pShowtimeId, seatIds: pSeatIds, timestamp } = JSON.parse(pending);
+
+                // Only restore if it's the same showtime and within 10 minutes
+                if (pShowtimeId === parseInt(showtimeId) && (Date.now() - timestamp < 10 * 60 * 1000)) {
+                    setSelectedSeats(pSeatIds);
+                    // Clear it so it doesn't re-lock on manual refresh
+                    localStorage.removeItem('pendingBooking');
+
+                    // We need to wait for the next tick or state update to ensure selectedSeats is updated
+                    // Actually, we can just use pSeatIds directly for the lock call
+                    const triggerAutoLock = async () => {
+                        try {
+                            setIsBooking(true);
+                            const response = await api.post('/lock', {
+                                showtimeId: pShowtimeId,
+                                seatIds: pSeatIds
+                            });
+                            const { expiresIn } = response.data;
+                            bookingSubmittedRef.current = true;
+                            const expiryTime = Date.now() + expiresIn * 1000;
+                            setLockExpiry(expiryTime);
+                            toast.success('Your selection has been restored and locked!');
+                        } catch (error: any) {
+                            console.error('Auto-lock failed:', error);
+                            setSelectedSeats([]);
+                            if (error.response?.status === 409) {
+                                toast.error('Some of your selected seats were just taken. Please pick new ones.');
+                            } else {
+                                toast.error('Could not restore your selection. Please try again.');
+                            }
+                        } finally {
+                            setIsBooking(false);
+                        }
+                    };
+                    triggerAutoLock();
+                } else {
+                    localStorage.removeItem('pendingBooking');
+                }
+            } catch (e) {
+                console.error('Error parsing pending booking:', e);
+                localStorage.removeItem('pendingBooking');
+            }
+        }
+    }, [auth.token, showtimeId, loading]); // Dependencies ensure this runs once we have auth and showtime loaded
     const [quote, setQuote] = useState<PricingQuoteResponse | null>(null);
     const [quoteLoading, setQuoteLoading] = useState(false);
     const [couponInput, setCouponInput] = useState('');
@@ -116,11 +184,55 @@ const SeatSelection: React.FC = () => {
         return () => { if (quoteDebounceRef.current) clearTimeout(quoteDebounceRef.current); };
     }, [selectedSeats, appliedCoupon, fetchQuote]);
 
-    const toggleSeat = (id: number, status: string) => {
-        if (status === 'booked' || lockExpiry) return;
-        setSelectedSeats(prev =>
-            prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
-        );
+    const toggleSeat = async (id: number, status: string) => {
+        if (status === 'booked') return;
+
+        const isSelecting = !selectedSeats.includes(id);
+
+        if (auth.token) {
+            try {
+                if (isSelecting) {
+                    console.log(`[SeatSelection] Locking seat: ${id}`);
+                    const response = await api.post('/lock', {
+                        showtimeId: parseInt(showtimeId!),
+                        seatIds: [id]
+                    });
+                    const { expiresIn } = response.data;
+                    const expiryTime = Date.now() + expiresIn * 1000;
+                    setLockExpiry(expiryTime);
+                    setSelectedSeats(prev => [...prev, id]);
+                } else {
+                    console.log(`[SeatSelection] Unlocking seat: ${id}`);
+                    try {
+                        await api.post('/unlock', {
+                            showtimeId: parseInt(showtimeId!),
+                            seatIds: [id]
+                        });
+                    } catch (unlockError) {
+                        console.warn('[SeatSelection] Backend unlock failed, proceeding with local deselect:', unlockError);
+                    }
+
+                    setSelectedSeats(prev => {
+                        const newSeats = prev.filter(sid => sid !== id);
+                        if (newSeats.length === 0) setLockExpiry(null);
+                        return newSeats;
+                    });
+                }
+            } catch (error: any) {
+                console.error('[SeatSelection] Real-time lock error:', error);
+                if (error.response?.status === 409) {
+                    toast.error('This seat was just taken by someone else.');
+                } else if (error.response?.status !== 403) { // 403 handled by outer logic if needed
+                    toast.error('Error updating seat selection.');
+                }
+                fetchShowtimeDetails();
+            }
+        } else {
+            // Unauthenticated: Just local selection
+            setSelectedSeats(prev =>
+                isSelecting ? [...prev, id] : prev.filter(sid => sid !== id)
+            );
+        }
     };
 
     const handleApplyCoupon = () => {
@@ -134,27 +246,44 @@ const SeatSelection: React.FC = () => {
 
     const handleLock = async () => {
         if (!auth.token) {
+            // Save pending selection
+            localStorage.setItem('pendingBooking', JSON.stringify({
+                showtimeId: parseInt(showtimeId!),
+                seatIds: selectedSeats,
+                timestamp: Date.now()
+            }));
             navigate('/login', { state: { from: location.pathname } });
             return;
         }
+
         if (selectedSeats.length === 0) return;
-        // setIsBooking(true);
-        try {
-            const response = await api.post('/lock', {
-                showtimeId: parseInt(showtimeId!),
-                seatIds: selectedSeats
-            });
-            const { expiresIn } = response.data;
-            bookingSubmittedRef.current = false;
-            setLockExpiry(Date.now() + expiresIn * 1000);
-        } catch (error: unknown) {
-            console.error('Lock error:', error);
-            // Error handling logic...
-            alert('Error locking seats. Please try again.');
-            fetchShowtimeDetails();
-            setSelectedSeats([]);
-        } finally {
-            setIsBooking(false);
+
+        // Since seats are already locked in real-time for auth users,
+        // we just handle the navigation if we have locks.
+        if (lockExpiry) {
+            bookingSubmittedRef.current = true; // Prevent release on navigation
+            navigate(`/food-selection?showtimeId=${showtimeId}&seatIds=${selectedSeats.join(',')}&basePrice=${displayTotal}&lockExpiry=${lockExpiry}`, { replace: true });
+        } else {
+            // Fallback for edge cases where seats are selected but not locked
+            try {
+                setIsBooking(true);
+                const response = await api.post('/lock', {
+                    showtimeId: parseInt(showtimeId!),
+                    seatIds: selectedSeats
+                });
+                const { expiresIn } = response.data;
+                bookingSubmittedRef.current = true;
+                const expiryTime = Date.now() + expiresIn * 1000;
+                setLockExpiry(expiryTime);
+                navigate(`/food-selection?showtimeId=${showtimeId}&seatIds=${selectedSeats.join(',')}&basePrice=${displayTotal}&lockExpiry=${expiryTime}`, { replace: true });
+            } catch (error: any) {
+                console.error('Final lock error:', error);
+                toast.error('Error confirming selection. Seats might have expired.');
+                fetchShowtimeDetails();
+                setSelectedSeats([]);
+            } finally {
+                setIsBooking(false);
+            }
         }
     };
 
@@ -200,10 +329,16 @@ const SeatSelection: React.FC = () => {
         }
         if (selectedSeats.length === 0) return;
 
-        const totalPrice = quote?.total ?? 0;
+        if (selectedSeats.length > 0 && !quote) {
+            alert('Pricing not ready. Please wait a moment.');
+            return;
+        }
 
-        if (paymentMethod === 'WALLET' && walletBalance < totalPrice) {
-            alert('Insufficient wallet balance!');
+        const totalPrice = quote?.total ?? 0;
+        const finalPayable = totalPrice + foodTotal;
+
+        if (paymentMethod === 'WALLET' && walletBalance < finalPayable) {
+            alert(`Insufficient wallet balance! Total required: ₹${finalPayable}, Available: ₹${walletBalance}`);
             return;
         }
 
@@ -214,10 +349,11 @@ const SeatSelection: React.FC = () => {
             const response = await api.post('/bookings', {
                 showtimeId: parseInt(showtimeId!),
                 seatIds: selectedSeats,
-                totalAmount: totalPrice,
+                totalAmount: totalPrice + foodTotal,
                 userId: auth.user?.id,
                 paymentMethod,
                 couponCode: appliedCoupon || undefined,
+                foodItems: selectedFood
             });
             if (response.status === 201 || response.status === 202) {
                 // Booking successful or processing
@@ -232,7 +368,7 @@ const SeatSelection: React.FC = () => {
                 });
                 setLockExpiry(null);
                 setSelectedSeats([]);
-                navigate('/history');
+                navigate('/history', { replace: true });
             } else {
                 bookingSubmittedRef.current = false;
                 isBookingRef.current = false;
@@ -348,7 +484,7 @@ const SeatSelection: React.FC = () => {
                 </div>
             </div>
 
-            <div className="pt-24 pb-48 px-4 overflow-x-hidden">
+            <div className="pt-24 pb-96 px-4 overflow-x-hidden">
                 <div className="max-w-7xl mx-auto">
                     {/* Screen Visual */}
                     <div className="mb-12 relative perspective-1000">
@@ -365,8 +501,7 @@ const SeatSelection: React.FC = () => {
                         {sortedTiers.map(tier => {
                             const tierSeats = groupedSeats[tier];
                             const tierRows = [...new Set(tierSeats.map(s => s.row))].sort().reverse();
-                            const engineSeat = quote?.seats.find(s => s.seatType === tier);
-                            const displayPrice = engineSeat ? engineSeat.finalPrice : (tierSeats[0]?.price || 0);
+                            const displayPrice = tierSeats[0]?.price || 0;
 
                             return (
                                 <div key={tier} className="space-y-4">
@@ -391,9 +526,9 @@ const SeatSelection: React.FC = () => {
                                                             return (
                                                                 <motion.button
                                                                     key={seat.id}
-                                                                    whileHover={!isBooked && !lockExpiry ? { scale: 1.1 } : {}}
-                                                                    whileTap={!isBooked && !lockExpiry ? { scale: 0.9 } : {}}
-                                                                    disabled={isBooked || lockExpiry !== null}
+                                                                    whileHover={!isBooked ? { scale: 1.1 } : {}}
+                                                                    whileTap={!isBooked ? { scale: 0.9 } : {}}
+                                                                    disabled={isBooked}
                                                                     onClick={() => toggleSeat(seat.id, seat.status)}
                                                                     className={cn(
                                                                         "relative w-9 h-9 rounded-t-lg rounded-b-md flex items-center justify-center text-[10px] font-bold transition-all duration-200",
@@ -454,85 +589,174 @@ const SeatSelection: React.FC = () => {
                     initial={{ y: "100%" }}
                     animate={{ y: selectedSeats.length > 0 ? 0 : "100%" }}
                     transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                    className="bg-neutral-900/90 backdrop-blur-xl border-t border-white/10 pb-8 pt-4 px-4 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pointer-events-auto"
+                    className="bg-neutral-900/95 backdrop-blur-2xl border-t border-white/10 pb-4 pt-3 px-4 shadow-[0_-20px_50px_rgba(0,0,0,0.7)] pointer-events-auto"
                 >
-                    <div className="max-w-4xl mx-auto">
-                        <div className="w-12 h-1 rounded-full bg-neutral-800 mx-auto mb-6" />
+                    <div className="max-w-5xl mx-auto">
+                        <div className="w-8 h-1 rounded-full bg-neutral-800 mx-auto mb-4" />
 
-                        {!lockExpiry ? (
+                        {/* Phase Toggle: Selection vs Checkout */}
+                        {!location.state?.fromFoodSelection ? (
                             <div className="flex flex-col md:flex-row items-center gap-6">
                                 <div className="flex-1 w-full space-y-4">
                                     <div className="flex items-center justify-between">
                                         <div className="space-y-1">
                                             <div>
                                                 <p className="text-sm text-neutral-400">Total Price</p>
-                                                <div className="flex items-baseline gap-2">
-                                                    <h3 className="text-3xl font-bold text-white">₹{displayTotal}</h3>
-                                                    {quoteLoading && <span className="text-sm text-emerald-500 animate-pulse">Updating...</span>}
+                                                <div className="flex flex-col gap-0.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-[10px] text-neutral-500 uppercase font-black tracking-widest leading-none">Total</span>
+                                                            <h3 className="text-2xl font-black italic text-white leading-none">₹{displayTotal + foodTotal}</h3>
+                                                            {quoteLoading && <span className="text-[10px] text-emerald-500 animate-pulse font-bold">...</span>}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 bg-white/5 px-2 py-1 rounded-lg border border-white/5">
+                                                            <p className="text-[10px] font-black text-white uppercase tracking-tighter">{selectedSeats.length} Seats Locked</p>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            {quote && (appliedRuleNames.length > 0 || couponSummary) && (
-                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                                                    {appliedRuleNames.length > 0 && (
-                                                        <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
-                                                            Offers applied: {appliedRuleNames.slice(0, 3).join(', ')}
-                                                            {appliedRuleNames.length > 3 && ' + more'}
+
+                                            {quote && (
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 mt-2 border-t border-white/5 pt-2">
+                                                    <div className="flex justify-between items-center text-[10px] text-neutral-500">
+                                                        <span>Base Amount</span>
+                                                        <span className="text-neutral-300 font-medium">₹{quote.subtotal}</span>
+                                                    </div>
+
+                                                    {/* Individual Rules (Discounts & Surges) */}
+                                                    {(() => {
+                                                        const uniqueRules = Array.from(new Set(quote.seats.flatMap(s => s.appliedRules?.map(r => r.name) || [])));
+                                                        return uniqueRules.map(ruleName => {
+                                                            const seatWithRule = quote.seats.find(s => s.appliedRules?.some(r => r.name === ruleName));
+                                                            const ruleInfo = seatWithRule?.appliedRules?.find(r => r.name === ruleName);
+                                                            const isSurge = ruleName.toLowerCase().includes('surge') ||
+                                                                ruleName.toLowerCase().includes('peak') ||
+                                                                (ruleInfo?.effect?.startsWith('×') && parseFloat(ruleInfo.effect.substring(1)) > 1);
+                                                            return (
+                                                                <div key={ruleName} className={`flex justify-between items-center text-[10px] ${isSurge ? 'text-rose-400/80' : 'text-emerald-500/80'}`}>
+                                                                    <span>{ruleName}</span>
+                                                                    <span className="font-bold">{isSurge ? 'Surcharge Applied' : 'Discount Applied'}</span>
+                                                                </div>
+                                                            );
+                                                        });
+                                                    })()}
+
+                                                    {/* Aggregate Rule Savings (if any) */}
+                                                    {(() => {
+                                                        const ruleSavings = quote.seats.reduce((acc, s) => acc + (s.basePrice - s.afterRules), 0);
+                                                        if (ruleSavings === 0) return null;
+                                                        return (
+                                                            <div className="flex justify-between items-center text-[10px] text-neutral-400 border-t border-white/5 mt-1 pt-1 opacity-60">
+                                                                <span>Other Price Adjustments</span>
+                                                                <span className="font-bold">{ruleSavings > 0 ? `−₹${ruleSavings.toFixed(0)}` : `+₹${Math.abs(ruleSavings).toFixed(0)}`}</span>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Membership Savings */}
+                                                    {(() => {
+                                                        const membershipSavings = quote.seats.reduce((acc, s) => acc + s.membershipDiscountAmount, 0);
+                                                        if (membershipSavings <= 0) return null;
+                                                        return (
+                                                            <div className="flex justify-between items-center text-[10px] text-cyan-500/80">
+                                                                <span>Member Savings</span>
+                                                                <span className="font-bold">−₹{membershipSavings.toFixed(0)}</span>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Coupon Savings */}
+                                                    {quote.couponDiscount > 0 && (
+                                                        <div className="flex justify-between items-center text-[10px] text-amber-500/80">
+                                                            <span>Coupon Savings</span>
+                                                            <span className="font-bold">−₹{quote.couponDiscount.toFixed(0)}</span>
                                                         </div>
                                                     )}
-                                                    {couponSummary && (
-                                                        <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                                                            Coupon {couponSummary.code} ({couponSummary.label}) − You save ₹{couponSummary.amountSaved.toFixed(0)}
+
+                                                    {/* Food Total */}
+                                                    {foodTotal > 0 && (
+                                                        <div className="flex justify-between items-center text-[10px] text-neutral-500">
+                                                            <span>Food & Snacks</span>
+                                                            <span className="text-neutral-300 font-medium">+₹{foodTotal}</span>
                                                         </div>
                                                     )}
                                                 </div>
                                             )}
-                                            {selectedSeatDetails.length > 0 && (
-                                                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-300">
-                                                    <span className="text-neutral-500">Seats:</span>
-                                                    {selectedSeatDetails.map(seat => (
-                                                        <span
-                                                            key={seat.id}
-                                                            className="px-2 py-1 rounded-full bg-white/5 border border-white/10"
-                                                        >
-                                                            {seat.row}{seat.number}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm font-bold text-white">{selectedSeats.length} Seats</p>
-                                            <p className="text-xs text-neutral-500">Selected</p>
                                         </div>
                                     </div>
-                                </div>
 
+                                    {quote && (appliedRuleNames.length > 0 || couponSummary) && (
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                            {appliedRuleNames.length > 0 && (
+                                                <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                                                    Offers applied: {appliedRuleNames.slice(0, 3).join(', ')}
+                                                    {appliedRuleNames.length > 3 && ' + more'}
+                                                </div>
+                                            )}
+                                            {couponSummary && (
+                                                <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                                                    Coupon {couponSummary.code} ({couponSummary.label}) − You save ₹{couponSummary.amountSaved.toFixed(0)}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {selectedSeatDetails.length > 0 && (
+                                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                            <span className="text-neutral-500 font-bold uppercase tracking-widest">Seats:</span>
+                                            {selectedSeatDetails.map(seat => (
+                                                <span key={seat.id} className="px-1.5 py-0.5 rounded-md bg-white/5 border border-white/5 text-neutral-300 font-bold">
+                                                    {seat.row}{seat.number}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                                 <button
                                     onClick={handleLock}
                                     disabled={quoteLoading || isBooking}
-                                    className="w-full md:w-auto h-14 px-12 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold text-lg shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                                    className="w-full md:w-auto h-12 px-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black uppercase text-xs tracking-widest shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
                                 >
-                                    {isBooking ? 'Processing...' : 'Confirm Seats'}
+                                    {isBooking ? 'LOCKING...' : 'Confirm Seats'}
                                 </button>
                             </div>
                         ) : (
                             <div className="space-y-6">
+                                {/* Selection Overview in Checkout Phase */}
+                                <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b border-white/5 pb-6">
+                                    <div className="flex-1 w-full space-y-1">
+                                        <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest leading-none">Final Amount</p>
+                                        <div className="flex items-baseline gap-2">
+                                            <h3 className="text-4xl font-black italic text-emerald-500">₹{displayTotal + foodTotal}</h3>
+                                            <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider">All inclusive</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-right">
+                                            <p className="text-sm font-black text-white italic">{selectedSeats.length} Seats Locked</p>
+                                            <div className="flex items-center gap-2 justify-end mt-1 text-amber-500">
+                                                <Clock className="w-3 h-3" />
+                                                <CountdownTimer targetTime={lockExpiry || 0} onExpire={handleExpire} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 {/* Coupon Input */}
                                 <div className="flex gap-3">
                                     <div className="relative flex-1">
                                         <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                                         <input
                                             type="text"
-                                            placeholder="Enter coupon code"
+                                            placeholder="ENTER COUPON..."
                                             value={couponInput}
                                             onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                                            className="w-full h-12 pl-11 pr-4 rounded-xl bg-neutral-950 border border-white/10 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500/50"
+                                            className="w-full h-12 pl-11 pr-4 rounded-xl bg-neutral-950 border border-white/10 text-white placeholder:text-neutral-700 font-black italic focus:outline-none focus:border-emerald-500/50"
                                         />
                                     </div>
                                     <button
                                         onClick={handleApplyCoupon}
-                                        disabled={!couponInput}
-                                        className="h-12 px-6 rounded-xl bg-neutral-800 border border-white/10 text-white font-bold hover:bg-neutral-700 disabled:opacity-50 transition-colors"
+                                        disabled={!couponInput || quoteLoading}
+                                        className="h-12 px-6 rounded-xl bg-neutral-800 border border-white/10 text-white font-black uppercase text-[10px] tracking-widest hover:bg-neutral-700 disabled:opacity-50 transition-colors"
                                     >
                                         Apply
                                     </button>
@@ -540,30 +764,30 @@ const SeatSelection: React.FC = () => {
 
                                 {appliedCoupon && (
                                     <div className={cn(
-                                        "flex items-center gap-2 p-3 rounded-xl text-sm font-medium",
-                                        couponError ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
+                                        "flex items-center gap-3 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest",
+                                        couponError ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                                     )}>
                                         {couponError ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                                        {couponError || `Coupon '${appliedCoupon}' applied! You saved ₹${quote?.couponDiscount.toFixed(0)}`}
+                                        {couponError || `Coupon '${appliedCoupon}' ACTIVE! Saved ₹${quote?.couponDiscount.toFixed(0)}`}
                                     </div>
                                 )}
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <button
                                         onClick={() => handleBooking('ONLINE')}
-                                        disabled={isBooking}
-                                        className="h-14 rounded-2xl bg-neutral-800 border border-white/10 hover:bg-neutral-700 text-white font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                                        disabled={isBooking || quoteLoading || !quote}
+                                        className="h-14 rounded-2xl bg-neutral-950 border border-white/10 hover:border-emerald-500/30 text-white font-black uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-3 transition-all hover:-translate-y-1 group disabled:opacity-50"
                                     >
-                                        <CreditCard className="w-5 h-5" />
+                                        <CreditCard className="w-4 h-4 transition-transform group-hover:scale-110" />
                                         Pay Online
                                     </button>
                                     <button
                                         onClick={() => handleBooking('WALLET')}
-                                        disabled={walletBalance < displayTotal || isBooking}
-                                        className="h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500"
+                                        disabled={walletBalance < (displayTotal + foodTotal) || isBooking || quoteLoading || !quote}
+                                        className="h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-3 shadow-lg shadow-emerald-500/20 transition-all hover:-translate-y-1 group disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:translate-y-0"
                                     >
-                                        <Wallet className="w-5 h-5" />
-                                        <span>{isBooking ? 'Processing...' : `Pay with Wallet (₹${walletBalance})`}</span>
+                                        <Wallet className="w-4 h-4 transition-transform group-hover:scale-110" />
+                                        <span>{isBooking ? 'Finalizing...' : `Wallet (₹${walletBalance})`}</span>
                                     </button>
                                 </div>
                             </div>

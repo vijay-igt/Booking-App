@@ -24,7 +24,7 @@ const Login: React.FC = () => {
             const response = await api.post('/auth/login', { email, password });
             auth.login(response.data.token, response.data.user);
 
-            const from = location.state?.from || (response.data.user.role === 'admin' ? '/admin' : '/');
+            const from = (location.state as any)?.from || (response.data.user.role === 'admin' ? '/admin' : '/');
             navigate(from, { replace: true });
         } catch (err: unknown) {
             if (err instanceof AxiosError && err.response?.data?.message) {
@@ -190,7 +190,11 @@ const Login: React.FC = () => {
                     className="text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 mt-10"
                 >
                     New to CineVerse?{' '}
-                    <Link to="/register" className="text-emerald-500 hover:text-emerald-400 transition-colors">
+                    <Link
+                        to="/register"
+                        state={{ from: location.state?.from }}
+                        className="text-emerald-500 hover:text-emerald-400 transition-colors"
+                    >
                         Secure Account
                     </Link>
                 </motion.p>

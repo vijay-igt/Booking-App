@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createMovie, getMovies, getMovieById, updateMovie, deleteMovie, recalculatePopularity, getRecommendations, addToWatchlist, removeFromWatchlist, getWatchlist } from '../controllers/movieController';
-import { createShowtime, getShowtimesByMovie, getShowtimesByScreen, getShowtimeSeats, updateShowtime, deleteShowtime } from '../controllers/showtimeController';
+import { createShowtime, getShowtimesByMovie, getShowtimesByScreen, getShowtimeById, getShowtimeSeats, updateShowtime, deleteShowtime } from '../controllers/showtimeController';
 import { adminAuth, optionalAuth, superAdminAuth, authenticateToken } from '../middleware/auth';
 
 const router = Router();
@@ -23,5 +23,6 @@ router.put('/showtimes/:id', adminAuth, updateShowtime);
 router.delete('/showtimes/:id', adminAuth, deleteShowtime);
 router.get('/showtimes/movie/:movieId', getShowtimesByMovie);
 router.get('/showtimes/screen/:screenId', getShowtimesByScreen);
+router.get('/showtimes/:id', getShowtimeById);
 router.get('/showtimes/:id/seats', getShowtimeSeats);
 export default router;

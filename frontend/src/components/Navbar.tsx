@@ -335,12 +335,14 @@ const Navbar: React.FC = () => {
                                 <div className="flex items-center gap-3 pl-4 border-l border-white/10">
                                     <Link
                                         to="/login"
+                                        state={{ from: location.pathname }}
                                         className="text-sm font-bold text-white hover:text-emerald-400 transition-colors"
                                     >
                                         Log In
                                     </Link>
                                     <Link
                                         to="/register"
+                                        state={{ from: location.pathname }}
                                         className="h-9 px-4 rounded-full bg-emerald-500 text-neutral-950 text-sm font-bold flex items-center hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
                                     >
                                         Sign Up
@@ -387,12 +389,14 @@ const Navbar: React.FC = () => {
                                 <div className="grid grid-cols-2 gap-4 mt-4">
                                     <Link
                                         to="/login"
+                                        state={{ from: location.pathname }}
                                         className="h-12 rounded-xl border border-white/10 flex items-center justify-center text-white font-bold"
                                     >
                                         Log In
                                     </Link>
                                     <Link
                                         to="/register"
+                                        state={{ from: location.pathname }}
                                         className="h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-neutral-950 font-bold"
                                     >
                                         Sign Up

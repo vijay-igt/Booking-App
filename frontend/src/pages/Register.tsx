@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import api, { getBackendBaseUrl } from '../api';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, User as UserIcon, AlertCircle, ArrowRight, Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -12,6 +12,7 @@ const Register: React.FC = () => {
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const location = useLocation();
     const backendUrl = getBackendBaseUrl();
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -215,7 +216,11 @@ const Register: React.FC = () => {
 
                                 <p className="text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 mt-8">
                                     Already a member?{' '}
-                                    <Link to="/login" className="text-amber-500 hover:text-amber-400 transition-colors">
+                                    <Link
+                                        to="/login"
+                                        state={{ from: (location.state as any)?.from }}
+                                        className="text-amber-500 hover:text-amber-400 transition-colors"
+                                    >
                                         Access Vault
                                     </Link>
                                 </p>

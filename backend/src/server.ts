@@ -19,6 +19,7 @@ import lockRoutes from './routes/lockRoutes';
 import userRoutes from './routes/userRoutes';
 import pricingRoutes from './routes/pricingRoutes';
 import supportRoutes from './routes/supportRoutes';
+import foodRoutes from './routes/foodRoutes';
 import path from 'path';
 
 import jwt from 'jsonwebtoken';
@@ -89,6 +90,7 @@ app.use('/api', lockRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api/food', foodRoutes);
 
 // Google OAuth routes
 app.get('/auth/google',

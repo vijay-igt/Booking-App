@@ -2,6 +2,7 @@ import { Table, Column, Model, DataType, PrimaryKey, AutoIncrement, ForeignKey, 
 import { User } from './User';
 import { Showtime } from './Showtime';
 import { Ticket } from './Ticket';
+import { BookingFoodItem } from './BookingFoodItem';
 
 @Table({
     tableName: 'bookings',
@@ -61,4 +62,7 @@ export class Booking extends Model {
 
     @HasMany(() => Ticket)
     declare tickets: Ticket[];
+
+    @HasMany(() => BookingFoodItem)
+    declare foodItems: BookingFoodItem[];
 }

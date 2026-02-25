@@ -1,6 +1,6 @@
 import redis from '../config/redis';
 
-const LOCK_TTL_SECONDS = 310; // 5 minutes + 10s buffer
+const LOCK_TTL_SECONDS = 610; // 10 minutes + 10s buffer
 
 const ACQUIRE_LOCKS_LUA = `
 local userId = ARGV[1]
@@ -95,6 +95,7 @@ export class LockService {
         }
 
         try {
+            console.log(`[LockService] Releasing locks for user ${userId}: ${keys}`);
             await redis.eval(
                 RELEASE_LOCKS_LUA,
                 keys.length,
@@ -109,15 +110,18 @@ export class LockService {
     static async validateLock(showtimeId: number, seatIds: number[], userId: number): Promise<boolean> {
         const keys = seatIds.map(seatId => `lock:showtime:${showtimeId}:seat:${seatId}`);
         if (!redis) {
-            return keys.every((key) => {
+            const isValid = keys.every((key) => {
                 const entry = getEntry(key);
                 return entry?.userId === userId;
             });
+            console.log(`[LockService] InMemory ValidateLock for ${userId}: keys=${keys}, result=${isValid}`);
+            return isValid;
         }
 
         const values = await redis.mget(...keys);
 
         // Every key must exist AND belong to the user
-        return values.every(val => val === userId.toString());
+        const isValid = values.every(val => val === userId.toString());
+        return isValid;
     }
 }

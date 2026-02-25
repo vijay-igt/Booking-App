@@ -18,43 +18,48 @@ import {
     PricingContext,
 } from '../services/pricingEngine';
 
-// ─── In-process rule cache (60-second TTL) ────────────────────────────────────
-let rulesCache: PricingRule[] | null = null;
-let rulesCacheExpiry = 0;
+// ─── In-process rule cache (60-second TTL per date) ───────────────────────────
+const rulesCache: Record<string, { rules: PricingRule[]; expiry: number }> = {};
 
-async function getActiveRules(): Promise<PricingRule[]> {
+async function getActiveRules(targetDate: string): Promise<PricingRule[]> {
     const now = Date.now();
-    if (rulesCache && now < rulesCacheExpiry) return rulesCache;
+    const cacheEntry = rulesCache[targetDate];
 
-    const today = new Date().toISOString().slice(0, 10);
+    if (cacheEntry && now < cacheEntry.expiry) {
+        return cacheEntry.rules;
+    }
 
-    rulesCache = await PricingRule.findAll({
+    const rules = await PricingRule.findAll({
         where: {
             isActive: true,
             [Op.and]: [
                 {
                     [Op.or]: [
                         { validFrom: null },
-                        { validFrom: { [Op.lte]: today } },
+                        { validFrom: { [Op.lte]: targetDate } },
                     ],
                 },
                 {
                     [Op.or]: [
                         { validUntil: null },
-                        { validUntil: { [Op.gte]: today } },
+                        { validUntil: { [Op.gte]: targetDate } },
                     ],
                 },
             ],
         },
         order: [['priority', 'ASC'], ['id', 'ASC']],
     });
-    rulesCacheExpiry = now + 60_000; // 60 seconds
-    return rulesCache;
+
+    rulesCache[targetDate] = {
+        rules,
+        expiry: now + 60_000, // 60 seconds
+    };
+
+    return rules;
 }
 
 function invalidateRulesCache() {
-    rulesCache = null;
-    rulesCacheExpiry = 0;
+    Object.keys(rulesCache).forEach(key => delete rulesCache[key]);
 }
 
 // ─── GET /api/pricing/quote ───────────────────────────────────────────────────
@@ -106,8 +111,9 @@ export const getQuote = async (req: Request, res: Response): Promise<void> => {
         const totalSeats = await Seat.count({ where: { screenId: showtime.screenId } });
         const occupancyPercent = totalSeats > 0 ? (bookedCount / totalSeats) * 100 : 0;
 
-        // 4. Fetch active rules (cached)
-        const rules = await getActiveRules();
+        // 4. Fetch active rules for the showtime date
+        const targetDate = new Date(showtime.startTime).toISOString().slice(0, 10);
+        const rules = await getActiveRules(targetDate);
 
         // 5. Fetch user membership tier (optional)
         const authUserId = req.user?.id;
@@ -201,7 +207,7 @@ export const getQuote = async (req: Request, res: Response): Promise<void> => {
             showtimeId: showtime.id,
             movie: showtime.movie?.title,
             seats: perSeatBreakdowns,
-            subtotal: Math.round(totalBeforeCoupon * 100) / 100,
+            subtotal: Math.round(perSeatBreakdowns.reduce((sum, s) => sum + s.basePrice, 0) * 100) / 100,
             coupon: couponDetails,
             couponError,
             couponDiscount: couponDiscountAmount,

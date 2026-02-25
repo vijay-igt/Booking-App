@@ -63,7 +63,7 @@ interface ScreenTierSummary {
 
 const AdminDashboard: React.FC = () => {
     // ─── State ────────────────────────────────────────────────────────────────
-    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet' | 'pricing' | 'coupons' | 'support'>('theaters');
+    const [currentTab, setCurrentTab] = useState<'theaters' | 'movies' | 'showtimes' | 'bookings' | 'users' | 'wallet' | 'pricing' | 'coupons' | 'support' | 'food'>('theaters');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
     const { user, logout } = useAuth();
@@ -80,6 +80,7 @@ const AdminDashboard: React.FC = () => {
     const [adminTickets, setAdminTickets] = useState<AdminTicket[]>([]);
     const [selectedAdminTicket, setSelectedAdminTicket] = useState<AdminTicket | null>(null);
     const [adminReplyMessage, setAdminReplyMessage] = useState('');
+    const [foodItems, setFoodItems] = useState<any[]>([]);
     const { subscribe } = useWebSocket();
 
     // Modals
@@ -87,6 +88,7 @@ const AdminDashboard: React.FC = () => {
     const [showScreenModal, setShowScreenModal] = useState(false);
     const [showMovieModal, setShowMovieModal] = useState(false);
     const [showShowtimeModal, setShowShowtimeModal] = useState(false);
+    const [showFoodModal, setShowFoodModal] = useState(false);
 
     // Forms & Inputs
     const [newTheater, setNewTheater] = useState({ name: '', location: '' });
@@ -112,6 +114,12 @@ const AdminDashboard: React.FC = () => {
     });
     const [newShowtimeDate, setNewShowtimeDate] = useState('');
     const [newShowtimeTime, setNewShowtimeTime] = useState('');
+
+    const [newFoodItem, setNewFoodItem] = useState({
+        name: '', description: '', price: 0, category: 'Snacks',
+        imageUrl: '', isVeg: true, calories: 0, allergens: ''
+    });
+    const [editingFoodId, setEditingFoodId] = useState<number | null>(null);
 
     // User Management
     const [userSearch, setUserSearch] = useState('');
@@ -144,6 +152,7 @@ const AdminDashboard: React.FC = () => {
         if (currentTab === 'users') fetchUsers();
         if (currentTab === 'wallet') fetchWalletRequests();
         if (currentTab === 'support') fetchAdminTickets();
+        if (currentTab === 'food') fetchFoodItems();
         fetchDashboardStats();
     }, [currentTab, userSearch]);
 
@@ -255,6 +264,15 @@ const AdminDashboard: React.FC = () => {
             const res = await api.get('/support/admin/tickets');
             setAdminTickets(res.data);
         } catch (error: unknown) {
+            console.error(error);
+        }
+    };
+
+    const fetchFoodItems = async () => {
+        try {
+            const res = await api.get('/food');
+            setFoodItems(res.data);
+        } catch (error) {
             console.error(error);
         }
     };
@@ -566,6 +584,34 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
+    const handleSaveFoodItem = async () => {
+        try {
+            if (editingFoodId) {
+                await api.put(`/food/${editingFoodId}`, newFoodItem);
+            } else {
+                await api.post('/food', newFoodItem);
+            }
+            setShowFoodModal(false);
+            setNewFoodItem({ name: '', description: '', price: 0, category: 'Snacks', imageUrl: '', isVeg: true, calories: 0, allergens: '' });
+            setEditingFoodId(null);
+            fetchFoodItems();
+        } catch (error) {
+            console.error(error);
+            alert('Failed to save food item');
+        }
+    };
+
+    const handleDeleteFoodItem = async (id: number) => {
+        if (!window.confirm('Delete this food item?')) return;
+        try {
+            await api.delete(`/food/${id}`);
+            fetchFoodItems();
+        } catch (error) {
+            console.error(error);
+            alert('Failed to delete food item');
+        }
+    };
+
     const handleRecalculatePopularity = async () => {
         if (!window.confirm('Recalculate popularity scores for all movies based on last 7 days of bookings?')) return;
         try {
@@ -589,6 +635,7 @@ const AdminDashboard: React.FC = () => {
         ...(user?.role === 'super_admin' ? [{ id: 'wallet' as const, label: 'Wallet', icon: Wallet }] : []),
         ...(user?.role === 'super_admin' ? [{ id: 'pricing' as const, label: 'Pricing Rules', icon: Star }] : []),
         { id: 'coupons' as const, label: 'Coupons', icon: Bell },
+        { id: 'food' as const, label: 'Food & Snacks', icon: Menu },
         { id: 'support' as const, label: 'Support', icon: Headset },
     ];
 
@@ -1166,6 +1213,62 @@ const AdminDashboard: React.FC = () => {
                         {currentTab === 'pricing' && <PricingRuleManager />}
                         {currentTab === 'coupons' && <CouponManager />}
 
+                        {/* ─── Food Tab ─── */}
+                        {currentTab === 'food' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold">Food & Snacks Menu</h3>
+                                    <button
+                                        onClick={() => { setEditingFoodId(null); setNewFoodItem({ name: '', description: '', price: 0, category: 'Snacks', imageUrl: '', isVeg: true, calories: 0, allergens: '' }); setShowFoodModal(true); }}
+                                        className="px-4 py-2 rounded-xl bg-emerald-500 text-neutral-950 font-bold flex items-center gap-2 hover:bg-emerald-400 transition-colors"
+                                    >
+                                        <Plus className="w-4 h-4" /> Add Item
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {foodItems.map(item => (
+                                        <div key={item.id} className="bg-neutral-900 border border-white/5 rounded-2xl overflow-hidden group hover:border-emerald-500/30 transition-colors">
+                                            <div className="h-48 overflow-hidden relative">
+                                                <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                                <div className="absolute top-4 left-4">
+                                                    <span className={cn(
+                                                        "px-2 py-1 text-[10px] font-bold rounded-md border",
+                                                        item.isVeg ? "bg-green-500/10 text-green-500 border-green-500/20" : "bg-red-500/10 text-red-500 border-red-500/20"
+                                                    )}>
+                                                        {item.isVeg ? 'VEG' : 'NON-VEG'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="p-6">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <h4 className="font-bold text-lg text-white">{item.name}</h4>
+                                                    <span className="text-emerald-500 font-bold">₹{item.price}</span>
+                                                </div>
+                                                <p className="text-sm text-neutral-500 mb-4 line-clamp-2">{item.description}</p>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs text-neutral-400 bg-white/5 px-2 py-1 rounded-md uppercase font-bold tracking-wider">{item.category}</span>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => { setEditingFoodId(item.id); setNewFoodItem(item); setShowFoodModal(true); }}
+                                                            className="p-2 rounded-lg hover:bg-emerald-500/10 text-neutral-400 hover:text-emerald-500 transition-colors"
+                                                        >
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteFoodItem(item.id)}
+                                                            className="p-2 rounded-lg hover:bg-red-500/10 text-neutral-400 hover:text-red-500 transition-colors"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* ─── Support Tab ─── */}
                         {currentTab === 'support' && (
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-16rem)] overflow-hidden">
@@ -1611,7 +1714,69 @@ const AdminDashboard: React.FC = () => {
                                     value={requestNotes}
                                     onChange={e => setRequestNotes(e.target.value)}
                                 />
-                                <button onClick={handleRequestMovie} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Send Request</button>
+                                <button onClick={handleRequestMovie} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold">Submit Request</button>
+                            </div>
+                        </Modal>
+                    )}
+
+                    {/* Food Modal */}
+                    {showFoodModal && (
+                        <Modal onClose={() => setShowFoodModal(false)} title={editingFoodId ? "Edit Food Item" : "Add Food Item"}>
+                            <div className="space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Name</label>
+                                    <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Item Name" value={newFoodItem.name} onChange={e => setNewFoodItem({ ...newFoodItem, name: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Description</label>
+                                    <textarea className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Description" rows={3} value={newFoodItem.description} onChange={e => setNewFoodItem({ ...newFoodItem, description: e.target.value })} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Price (₹)</label>
+                                        <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" type="number" placeholder="Price" value={newFoodItem.price} onChange={e => setNewFoodItem({ ...newFoodItem, price: Number(e.target.value) })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Category</label>
+                                        <select className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" value={newFoodItem.category} onChange={e => setNewFoodItem({ ...newFoodItem, category: e.target.value })}>
+                                            <option value="Snacks">Snacks</option>
+                                            <option value="Beverages">Beverages</option>
+                                            <option value="Desserts">Desserts</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Image URL</label>
+                                    <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="Image URL" value={newFoodItem.imageUrl} onChange={e => setNewFoodItem({ ...newFoodItem, imageUrl: e.target.value })} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Type</label>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => setNewFoodItem({ ...newFoodItem, isVeg: true })}
+                                                className={cn("flex-1 py-2 rounded-lg text-xs font-bold border transition-colors", newFoodItem.isVeg ? "bg-green-500/20 border-green-500 text-green-500" : "bg-neutral-950 border-white/10 text-neutral-500")}
+                                            >
+                                                VEG
+                                            </button>
+                                            <button 
+                                                onClick={() => setNewFoodItem({ ...newFoodItem, isVeg: false })}
+                                                className={cn("flex-1 py-2 rounded-lg text-xs font-bold border transition-colors", !newFoodItem.isVeg ? "bg-red-500/20 border-red-500 text-red-500" : "bg-neutral-950 border-white/10 text-neutral-500")}
+                                            >
+                                                NON-VEG
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Calories</label>
+                                        <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" type="number" placeholder="Kcal" value={newFoodItem.calories} onChange={e => setNewFoodItem({ ...newFoodItem, calories: Number(e.target.value) })} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 mb-1 uppercase">Allergens</label>
+                                    <input className="w-full p-3 rounded-xl bg-neutral-950 border border-white/10 text-white" placeholder="e.g. Milk, Gluten" value={newFoodItem.allergens} onChange={e => setNewFoodItem({ ...newFoodItem, allergens: e.target.value })} />
+                                </div>
+                                <button onClick={handleSaveFoodItem} className="w-full py-3 rounded-xl bg-emerald-500 text-neutral-950 font-bold mt-4">Save Item</button>
                             </div>
                         </Modal>
                     )}

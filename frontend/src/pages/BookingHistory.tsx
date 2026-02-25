@@ -41,6 +41,13 @@ interface Booking {
       number: number;
     };
   }[];
+  foodItems?: {
+    quantity: number;
+    priceAtBooking: number;
+    foodItem: {
+      name: string;
+    };
+  }[];
 }
 
 const BookingHistory: React.FC = () => {
@@ -134,9 +141,13 @@ const BookingHistory: React.FC = () => {
   };
 
   const shareTicket = async (booking: Booking) => {
+    const foodText = (booking.foodItems && booking.foodItems.length > 0)
+      ? `\n🍿 Food: ${booking.foodItems.map(f => `${f.foodItem.name} (x${f.quantity})`).join(', ')}`
+      : '';
+
     const text = `🎬 ${booking.showtime.movie.title}\n📍 ${booking.showtime.screen.theater.name}\n🎟 Seats: ${booking.tickets
       .map(t => `${t.seat.row}${t.seat.number}`)
-      .join(', ')}`;
+      .join(', ')}${foodText}`;
 
     if (navigator.share) {
       await navigator.share({ title: 'Movie Ticket', text });
@@ -330,6 +341,23 @@ const BookingHistory: React.FC = () => {
                             />
                           </div>
                         </div>
+
+                        {/* Food Items Section */}
+                        {b.foodItems && b.foodItems.length > 0 && (
+                          <div className="mt-8 pt-8 border-t border-dashed border-white/5">
+                            <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest mb-4">Snacks & Beverages</p>
+                            <div className="flex flex-wrap gap-4">
+                              {b.foodItems.map((item, idx) => (
+                                <div key={idx} className="flex flex-col">
+                                  <span className="text-xs font-bold text-white uppercase tracking-tighter">
+                                    {item.foodItem.name} <span className="text-emerald-500 ml-1">x{item.quantity}</span>
+                                  </span>
+                                  <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">₹{item.priceAtBooking} each</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

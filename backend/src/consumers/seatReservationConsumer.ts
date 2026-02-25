@@ -14,6 +14,8 @@ import { Screen } from '../models/Screen';
 import { Theater } from '../models/Theater';
 import { Coupon } from '../models/Coupon';
 import { CouponUsage } from '../models/CouponUsage';
+import { BookingFoodItem } from '../models/BookingFoodItem';
+import { FoodItem } from '../models/FoodItem';
 import { sendNotificationToUser } from '../services/websocketService';
 
 export const startSeatReservationConsumer = async () => {
@@ -29,7 +31,7 @@ export const startSeatReservationConsumer = async () => {
         await consumer.run({
             eachMessage: async ({ topic, partition, message }) => {
                 if (!message.value) return;
-                const { userId, showtimeId, seatIds, totalAmount, trackingId, paymentMethod, couponCode } = JSON.parse(message.value.toString());
+                const { userId, showtimeId, seatIds, totalAmount, trackingId, paymentMethod, couponCode, foodItems } = JSON.parse(message.value.toString());
 
                 // Validate Seat Locks
                 const hasLock = await LockService.validateLock(showtimeId, seatIds, userId);
@@ -188,6 +190,18 @@ export const startSeatReservationConsumer = async () => {
                         seatId,
                     }));
                     await Ticket.bulkCreate(tickets, { transaction });
+
+                    // Create Food Item entries if any
+                    if (foodItems && Array.isArray(foodItems)) {
+                        const foodEntries = foodItems.map((item: any) => ({
+                            bookingId: booking.id,
+                            foodItemId: item.id,
+                            quantity: item.quantity,
+                            priceAtBooking: item.price
+                        }));
+                        await BookingFoodItem.bulkCreate(foodEntries, { transaction });
+                    }
+
                     if (couponForUsage) {
                         await CouponUsage.create({
                             couponId: couponForUsage.id,

@@ -17,6 +17,7 @@ import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
 import SupportPage from './pages/SupportPage';
 import WatchlistPage from './pages/WatchlistPage';
+import FoodSelection from './pages/FoodSelection';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { WebSocketProvider } from './context/WebSocketContext';
@@ -65,6 +66,7 @@ const App: React.FC = () => {
 
               {/* Protected Routes */}
               <Route path="/history" element={<ProtectedRoute><BookingHistory /></ProtectedRoute>} />
+              <Route path="/food-selection" element={<ProtectedRoute><FoodSelection /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
               <Route path="/watchlist" element={<ProtectedRoute><WatchlistPage /></ProtectedRoute>} />

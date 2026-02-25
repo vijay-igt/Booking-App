@@ -13,6 +13,8 @@ import { Theater } from '../models/Theater';
 import { PricingRule } from '../models/PricingRule';
 import { Coupon } from '../models/Coupon';
 import { CouponUsage } from '../models/CouponUsage';
+import { FoodItem } from '../models/FoodItem';
+import { BookingFoodItem } from '../models/BookingFoodItem';
 import { sequelize } from '../config/database';
 import { getProducer } from '../config/kafkaClient';
 import { LockService } from '../services/lockService';
@@ -95,7 +97,7 @@ async function computeExpectedTotal(
 
 export const createBooking = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { userId: bodyUserId, showtimeId, seatIds, totalAmount, paymentMethod, couponCode } = req.body;
+        const { userId: bodyUserId, showtimeId, seatIds, totalAmount, paymentMethod, couponCode, foodItems } = req.body;
         const authUserId = req.user?.id;
 
         if (!authUserId) {
@@ -118,27 +120,39 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
             return;
         }
 
+        // Calculate food total if provided
+        let foodTotal = 0;
+        if (foodItems && Array.isArray(foodItems)) {
+            foodTotal = foodItems.reduce((acc: number, item: any) => acc + (item.price * item.quantity), 0);
+        }
+
         // ── Server-side price validation ──────────────────────────────────────
         const expectedTotal = await computeExpectedTotal(showtimeId, seatIds, userId, couponCode, paymentMethod);
         if (expectedTotal <= 0) {
             res.status(400).json({ message: 'Unable to calculate price. Please refresh and try again.' });
             return;
         }
-        if (Math.abs(expectedTotal - Number(totalAmount)) > 1) {
+
+        const serverTotalAmount = expectedTotal; // Seat price only
+        const finalTotalAmount = serverTotalAmount + foodTotal;
+
+        if (Math.abs(finalTotalAmount - Number(totalAmount)) > 1) {
             res.status(400).json({
                 message: 'Price mismatch. Please refresh and try again.',
-                expected: expectedTotal,
+                expected: finalTotalAmount,
+                received: totalAmount
             });
             return;
         }
-        const serverTotalAmount = expectedTotal;
 
         const trackingId = `BOOK-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
         // Wallet Balance Check (Synchronous pre-check)
         if (paymentMethod === 'WALLET') {
-            const user = await User.findByPk(userId);
-            if (!user || Number(user.walletBalance) < Number(serverTotalAmount)) {
+            const userWallet = await Wallet.findOne({ where: { userId, type: 'user' } });
+            const balance = userWallet ? Number(userWallet.balance) : 0;
+
+            if (balance < Number(finalTotalAmount)) {
                 res.status(400).json({ message: 'Insufficient wallet balance' });
                 return;
             }
@@ -154,10 +168,11 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                             userId,
                             showtimeId,
                             seatIds,
-                            totalAmount: serverTotalAmount,
+                            totalAmount: finalTotalAmount,
                             paymentMethod,
                             trackingId,
-                            couponCode: couponCode ? String(couponCode).toUpperCase() : null
+                            couponCode: couponCode ? String(couponCode).toUpperCase() : null,
+                            foodItems
                         })
                     }]
                 });
@@ -248,14 +263,14 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                     }
                 }
 
-                if (!userWallet || Number(userWallet.balance) < Number(serverTotalAmount)) {
+                if (!userWallet || Number(userWallet.balance) < Number(finalTotalAmount)) {
                     await transaction.rollback();
                     res.status(400).json({ message: 'Insufficient wallet balance' });
                     return;
                 }
 
                 // Deduct from User
-                userWallet.balance = Number(userWallet.balance) - Number(serverTotalAmount);
+                userWallet.balance = Number(userWallet.balance) - Number(finalTotalAmount);
                 await userWallet.save({ transaction });
 
                 // Sync legacy User.walletBalance
@@ -268,17 +283,19 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
                 // Record Debit Transaction
                 await Transaction.create({
                     userId,
-                    amount: -Number(serverTotalAmount),
+                    amount: -Number(finalTotalAmount),
                     type: 'DEBIT',
                     description: `Booking #${trackingId}`
                 }, { transaction });
             }
 
             // 3. DISTRIBUTE EARNINGS (Owner & Platform)
+            // Note: For now, we distribute only the seat earnings. 
+            // Food earnings might have different logic, but for simplicity we use the same.
             const owner = showtime.screen.theater.owner;
             const commissionRate = Number(owner.commissionRate) || 10;
-            const commissionAmount = (Number(serverTotalAmount) * commissionRate) / 100;
-            const ownerAmount = Number(serverTotalAmount) - commissionAmount;
+            const commissionAmount = (Number(finalTotalAmount) * commissionRate) / 100;
+            const ownerAmount = Number(finalTotalAmount) - commissionAmount;
 
             // Update Owner Wallet
             let ownerWallet = await Wallet.findOne({ where: { userId: owner.id, type: 'owner' }, transaction });
@@ -317,9 +334,21 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
             }, { transaction });
 
             // 4. Create Booking & Tickets
-            const booking = await Booking.create({ userId, showtimeId, totalAmount: serverTotalAmount, status: 'confirmed' }, { transaction });
+            const booking = await Booking.create({ userId, showtimeId, totalAmount: finalTotalAmount, status: 'confirmed' }, { transaction });
             const tickets = seatIds.map((seatId: number) => ({ bookingId: booking.id, showtimeId, seatId }));
             await Ticket.bulkCreate(tickets, { transaction });
+
+            // Create Food Item entries if any
+            if (foodItems && Array.isArray(foodItems)) {
+                const foodEntries = foodItems.map((item: any) => ({
+                    bookingId: booking.id,
+                    foodItemId: item.id,
+                    quantity: item.quantity,
+                    priceAtBooking: item.price
+                }));
+                await BookingFoodItem.bulkCreate(foodEntries, { transaction });
+            }
+
             if (couponForUsage) {
                 await CouponUsage.create({
                     couponId: couponForUsage.id,
@@ -376,6 +405,9 @@ export const getUserBookings = async (req: Request, res: Response): Promise<void
                     { model: Movie },
                     { model: Screen, include: [Theater] }
                 ] as any,
+            }, {
+                model: BookingFoodItem,
+                include: [FoodItem]
             }],
         });
         console.log(`[getUserBookings] Found ${bookings.length} bookings for userId: ${userId}`);

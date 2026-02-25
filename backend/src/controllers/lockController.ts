@@ -19,7 +19,7 @@ export const lockSeats = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        res.status(200).json({ message: 'Seats locked successfully', expiresIn: 300 });
+        res.status(200).json({ message: 'Seats locked successfully', expiresIn: 600 });
     } catch (error) {
         console.error('Lock error:', error);
         res.status(500).json({ message: 'Internal server error during locking' });
@@ -30,14 +30,12 @@ export const unlockSeats = async (req: Request, res: Response): Promise<void> =>
     try {
         const { showtimeId, seatIds } = req.body;
         const userId = req.user!.id;
-        const isValid = await LockService.validateLock(showtimeId, seatIds, userId);
+        console.log(`[LockController] User ${userId} attempting to unlock seats ${seatIds} for showtime ${showtimeId}`);
 
-        if (isValid) {
-            await LockService.releaseLock(showtimeId, seatIds, req.user!.id);
-            res.status(200).json({ message: 'Seats unlocked' });
-        } else {
-            res.status(403).json({ message: 'You do not hold the lock for these seats' });
-        }
+        // Perform release directly. The service/Lua script ensures you only release what you own.
+        // This avoids 403 errors if the lock has already expired (which is effectively a success).
+        await LockService.releaseLock(showtimeId, seatIds, userId);
+        res.status(200).json({ message: 'Seats unlocked (idempotent)' });
 
     } catch (error) {
         console.error('Unlock error:', error);

@@ -53,7 +53,12 @@ export const getBalance = async (req: Request, res: Response) => {
         }
 
         if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found for this user role' });
+            // Instead of 404, return 0 balance for users who haven't used the wallet yet
+            return res.json({
+                balance: 0,
+                transactions: [],
+                pendingRequests: []
+            });
         }
 
         res.json({
